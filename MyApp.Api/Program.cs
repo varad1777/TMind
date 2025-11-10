@@ -15,6 +15,17 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddScoped<IDeviceManager, DeviceManager>();
 builder.Services.AddHostedService<ModbusPollerHostedService>();
+// Allow your frontend to call the API
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000") // frontend URL
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
 
 var app = builder.Build();
 
@@ -29,6 +40,7 @@ if (app.Environment.IsDevelopment())
         // c.RoutePrefix = "";   // uncomment to serve swagger at root
     });
 }
+app.UseCors("AllowFrontend");
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
