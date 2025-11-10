@@ -19,7 +19,7 @@ namespace MyApp.Infrastructure.Services
         {
             if (string.IsNullOrWhiteSpace(dto.Name)) throw new ArgumentException("Name required");
 
-            var device = new Device { Name = dto.Name, Description = dto.Description };
+            var device = new Device { Name = dto.Name, Description = dto.Description};
             await _db.Devices.AddAsync(device, ct);
 
             var portSet = new DevicePortSet { DeviceId = device.DeviceId };
@@ -57,6 +57,10 @@ namespace MyApp.Infrastructure.Services
             var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
             if (device == null) throw new KeyNotFoundException("Device not found");
 
+            // ✅ Prevent updates to soft-deleted devices
+            if (device.IsDeleted)
+                throw new InvalidOperationException("Cannot update a deleted device.");
+
             // Update device fields (only when provided)
             if (dto.Name != null)
             {
@@ -81,6 +85,7 @@ namespace MyApp.Infrastructure.Services
                     throw new ArgumentException("Protocol must be a non-empty value up to 100 characters.", nameof(dto.Protocol));
                 device.Protocol = trimmedProto;
             }
+            
 
             // Handle configuration update/create when configDto is provided
             if (configDto != null)
@@ -160,51 +165,63 @@ namespace MyApp.Infrastructure.Services
             await _db.SaveChangesAsync(ct);
             _log.LogInformation("Updated device {DeviceId}", deviceId);
         }
-
+       
+        
+        
+        
         public async Task<List<Device>> GetAllDevicesAsync(CancellationToken ct = default)
         {
             var devices = await _db.Devices
+                                   .Where(d => !d.IsDeleted) // ✅ exclude soft-deleted records
                                    .Include(d => d.DeviceConfiguration)
                                    .AsNoTracking()
                                    .ToListAsync(ct);
+
             return devices;
         }
-
 
 
         public async Task DeleteDeviceAsync(Guid deviceId, CancellationToken ct = default)
         {
             var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
-            if (device == null) throw new KeyNotFoundException("Device not found");
+            if (device == null)
+                throw new KeyNotFoundException("Device not found");
 
-            // If you don't have cascade deletes, uncomment/remove related rows explicitly:
-            // var ports = _db.DevicePorts.Where(p => p.DeviceId == deviceId);
-            // _db.DevicePorts.RemoveRange(ports);
-            // var portSets = _db.DevicePortSets.Where(ps => ps.DeviceId == deviceId);
-            // _db.DevicePortSets.RemoveRange(portSets);
+            if (device.IsDeleted)
+            {
+                _log.LogWarning("Device {DeviceId} is already marked as deleted", deviceId);
+                return;
+            }
 
+            // Optional: If you want to prevent deletion if config is used elsewhere
             if (device.DeviceConfigurationId is Guid cfgId)
             {
                 var otherUses = await _db.Devices
                                          .AsNoTracking()
-                                         .AnyAsync(d => d.DeviceId != deviceId && d.DeviceConfigurationId == cfgId, ct);
+                                         .AnyAsync(d => d.DeviceId != deviceId &&
+                                                        d.DeviceConfigurationId == cfgId &&
+                                                        !d.IsDeleted, ct);
 
                 if (otherUses)
                     throw new InvalidOperationException("DeviceConfiguration is referenced by other devices and cannot be deleted. Detach it first or remove other references.");
-
-                var cfg = await _db.DeviceConfigurations.FindAsync(new object[] { cfgId }, ct);
-                if (cfg != null)
-                    _db.DeviceConfigurations.Remove(cfg);
             }
 
-            _db.Devices.Remove(device);
+            // Soft delete instead of physical delete
+            device.IsDeleted = true;
+
+            // Optionally update timestamp or audit fields here if needed
+            // device.DeletedAt = DateTime.UtcNow;
+
+            _db.Devices.Update(device);
             await _db.SaveChangesAsync(ct);
-            _log.LogInformation("Deleted device {DeviceId} and its related resources", deviceId);
+
+            _log.LogInformation("Soft deleted device {DeviceId}", deviceId);
         }
-
-
-
         public Task<Device?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default)
-            => _db.Devices.Include(d => d.DeviceConfiguration).FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+            => _db.Devices
+                  .Include(d => d.DeviceConfiguration)
+                  .AsNoTracking()
+                  .FirstOrDefaultAsync(d => d.DeviceId == deviceId && !d.IsDeleted, ct);
+
     }
 }
