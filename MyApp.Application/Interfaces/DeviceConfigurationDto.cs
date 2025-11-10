@@ -1,0 +1,27 @@
+﻿using MyApp.Application.Dtos;
+using MyApp.Domain.Entities;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace MyApp.Application.Interfaces
+{
+    public interface IDeviceManager
+    {
+        // Create new device (ports and portset auto-created)
+        Task<Guid> CreateDeviceAsync(CreateDeviceDto dto, CancellationToken ct = default);
+
+        // Update device info, and optionally configuration in the same request
+        Task UpdateDeviceAsync(Guid deviceId, UpdateDeviceDto dto, DeviceConfigurationDto? configDto = null, CancellationToken ct = default);
+
+        // Delete device (and its configuration if not shared)
+        Task DeleteDeviceAsync(Guid deviceId, CancellationToken ct = default);
+
+        // Get one device (with configuration included)
+        Task<Device?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default);
+
+        // Get all devices (with configurations)
+        Task<List<Device>> GetAllDevicesAsync(CancellationToken ct = default);
+    }
+}
