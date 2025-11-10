@@ -10,7 +10,7 @@ namespace MyApp.Domain.Entities
         public string Name { get; set; } = null!;
         public string? Description { get; set; }
         public string? Protocol { get; set; } = "ModbusTCP";
-   
+        public Boolean IsDeleted { get; set; } = false;
         public Guid? DeviceConfigurationId { get; set; }
         public DeviceConfiguration? DeviceConfiguration { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

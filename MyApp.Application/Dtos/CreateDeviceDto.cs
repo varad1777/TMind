@@ -12,6 +12,7 @@ namespace MyApp.Application.Dtos
         [StringLength(255, ErrorMessage = "Description cannot exceed 255 characters.")]
         public string? Description { get; set; }
 
+        
       
     }
 }
