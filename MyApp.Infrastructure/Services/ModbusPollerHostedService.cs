@@ -3,6 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
+using Modbus.Device;
 using MyApp.Domain.Entities;
 using MyApp.Infrastructure.Data;
 using System;
@@ -14,7 +16,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Modbus.Device;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MyApp.Infrastructure.Services
 {
@@ -69,6 +71,18 @@ namespace MyApp.Infrastructure.Services
 
                             // fire-and-forget long running loop for the device
                             var task = Task.Run(() => PollLoopForDeviceAsync(id, stoppingToken), stoppingToken);
+
+                            // the thread means  -> real worker thread, not thread pool
+                            // it created by OS
+                            // if CPU has 4 core then it can run 4 thread in parallel without context switching
+
+                            // task takes the thread from thread pool
+                            // thread pool can grow upto 32k (max) threads
+
+                            // but the cpu has 4 core, so 4 thread at a time , 
+                            // so context swich will happns very fast, and 
+                            // context switching is expensive operation
+                            // so we will limit the 100 devices to run in parallel
 
                             _deviceTasks.TryAdd(id, task);
 
@@ -202,8 +216,11 @@ namespace MyApp.Infrastructure.Services
             }
 
             const int ModbusMaxRegistersPerRead = 125;
+            // here just declaring modbus max registers per read
 
             bool dbUses40001 = false;
+            // checking address style, 
+            // if it 1 based or zero based
             if (!string.IsNullOrEmpty(addressStyleCfg))
                 dbUses40001 = string.Equals(addressStyleCfg, "40001", StringComparison.OrdinalIgnoreCase);
             else
@@ -211,6 +228,9 @@ namespace MyApp.Infrastructure.Services
 
             int ToProto(int dbAddr)
             {
+                //modbus expects zero-based addresses
+                // and humans often use 1-based addresses starting at 40001
+                // toProto normalizes to zero-based
                 if (dbUses40001) return dbAddr - 40001;
                 if (dbAddr > 0 && dbAddr < 40001) return dbAddr - 1;
                 return dbAddr;
@@ -219,7 +239,7 @@ namespace MyApp.Infrastructure.Services
             var protoPorts = ports.Select(p => new
             {
                 Port = p,
-                ProtoAddr = ToProto(p.RegisterAddress),
+                ProtoAddr = ToProto(p.RegisterAddress), // here 0 based address
                 Length = Math.Max(1, p.RegisterLength)
             })
             .OrderBy(x => x.ProtoAddr)
@@ -232,16 +252,38 @@ namespace MyApp.Infrastructure.Services
             }
 
             var ranges = new List<(int Start, int Count, List<dynamic> Items)>();
+            // ranges -> hold the final list of read block 
+            // start-> protocol start index for the modbus read
+            // count -> number of registers to read
+            // Items port included in the block
+            // i made this because -> it will group the nearby/ overlapping register
+            // into the contiguous read ranges, 
+            // each range size up to max 125 registers
+            // that way the poller read many port with fewer musbus call
+
+            // so in my db 8 port of 32 bit 
+            // so i declere the 18 port , because one port is 2 register
+            // one register -> 16 bits 
+
+            // so the modbus will send the value in 32 bits, 
+            // so it required the two register, 
+            // Register 40001 → first half of the number
+            //Register 40002 → second half of the number
             int idx = 0;
             while (idx < protoPorts.Count)
             {
-                int start = protoPorts[idx].ProtoAddr;
+                int start = protoPorts[idx].ProtoAddr; // 0 , 1, 2 
                 int end = start + protoPorts[idx].Length - 1;
                 var items = new List<dynamic> { protoPorts[idx] };
                 idx++;
+                // protoPorts[0] = { ProtoAddr = 0, Length = 2 }
+                //→ start = 0
+                //→ end = 1
+                //→ items = [port0]
 
                 while (idx < protoPorts.Count)
                 {
+                    //This checks if the next port’s register lies immediately after or overlaps the current range.
                     var next = protoPorts[idx];
                     if (next.ProtoAddr <= end + 1)
                     {
@@ -256,9 +298,13 @@ namespace MyApp.Infrastructure.Services
                         end = start + ModbusMaxRegistersPerRead - 1;
                         break;
                     }
+                    // Modbus cannot read more than 125 registers at once.
+                    //If your combined group exceeds 125 → stop grouping here.
                 }
 
                 int count = Math.Min(ModbusMaxRegistersPerRead, end - start + 1);
+                // Compute how many registers this range covers
+                //and add to the final list.
                 ranges.Add((start, count, items));
             }
 
@@ -269,7 +315,9 @@ namespace MyApp.Infrastructure.Services
                 await tcp.ConnectAsync(ip, port, connectCts.Token);
 
                 using var master = ModbusIpMaster.CreateIp(tcp);
+                // create a modbus master/client that runs on tcp connection
                 master.Transport.ReadTimeout = 3000;
+                // set modbus read time out 3000
 
                 var now = DateTime.UtcNow;
                 var allReads = new List<(int PortIndex, string SignalType, double Value, string Unit, int RegisterAddress)>();
@@ -308,6 +356,8 @@ namespace MyApp.Infrastructure.Services
                             var p = (DevicePort)ent.Port;
                             _failureCounts.TryRemove(p.DevicePortId, out _);
                         }
+                        // above line -> if data comes for port , then the port is working 
+                        // remove the failure count
 
                         // Table header
                         sb.AppendLine($"{"Time (UTC)".PadRight(30)} | {"Port".PadRight(6)} | {"Register".PadRight(8)} | {"Value".PadRight(15)} | {"Unit".PadRight(8)}");
@@ -338,7 +388,8 @@ namespace MyApp.Infrastructure.Services
 
                                     ushort r1 = regs[relativeIndex];
                                     ushort r2 = regs[relativeIndex + 1];
-
+                                    // 2 reg -> 16 , 16 bit ill read -> 32 bit float
+                                    // and meand 4 byte data 
                                     byte[] bytes = new byte[4] { (byte)(r1 >> 8), (byte)(r1 & 0xFF), (byte)(r2 >> 8), (byte)(r2 & 0xFF) };
                                     if (string.Equals(endian, "Little", StringComparison.OrdinalIgnoreCase)) Array.Reverse(bytes);
 
