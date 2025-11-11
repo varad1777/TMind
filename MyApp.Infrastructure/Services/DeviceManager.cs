@@ -223,5 +223,89 @@ namespace MyApp.Infrastructure.Services
                   .AsNoTracking()
                   .FirstOrDefaultAsync(d => d.DeviceId == deviceId && !d.IsDeleted, ct);
 
+
+
+        public async Task<List<Device>> GetDeletedDevicesAsync(CancellationToken ct = default)
+        {
+            return await _db.Devices
+                            .Where(d => d.IsDeleted)
+                            .Include(d => d.DeviceConfiguration)
+                            .AsNoTracking()
+                            .ToListAsync(ct);
+        }
+
+        // --- Get one soft-deleted device
+        public Task<Device?> GetDeletedDeviceAsync(Guid deviceId, CancellationToken ct = default)
+            => _db.Devices
+                  .Where(d => d.IsDeleted)
+                  .Include(d => d.DeviceConfiguration)
+                  .AsNoTracking()
+                  .FirstOrDefaultAsync(d => d.DeviceId == deviceId, ct);
+
+        // --- Restore soft-deleted device
+        public async Task RestoreDeviceAsync(Guid deviceId, CancellationToken ct = default)
+        {
+            var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
+            if (device == null) throw new KeyNotFoundException("Device not found");
+            if (!device.IsDeleted)
+            {
+                _log.LogWarning("Attempted to restore device {DeviceId} but it is not deleted", deviceId);
+                return; // or throw if you prefer
+            }
+
+            // If there's any business rule preventing restore (example: config removed) handle here.
+            device.IsDeleted = false;
+            // Optionally update timestamps: device.UpdatedAt = DateTime.UtcNow;
+
+            _db.Devices.Update(device);
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Restored device {DeviceId}", deviceId);
+        }
+
+        // --- Permanently delete (hard delete) a device and related resources (if desired)
+        public async Task PermanentlyDeleteDeviceAsync(Guid deviceId, CancellationToken ct = default)
+        {
+            var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
+            if (device == null)
+                throw new KeyNotFoundException("Device not found");
+
+            // If you want only-allow-hard-delete-for-already-soft-deleted:
+            // if (!device.IsDeleted) throw new InvalidOperationException("Device must be soft-deleted first.");
+
+            // Remove related child rows if cascade isn't configured (uncomment if needed)
+            // var ports = _db.DevicePorts.Where(p => p.DeviceId == deviceId);
+            // _db.DevicePorts.RemoveRange(ports);
+            // var portSets = _db.DevicePortSets.Where(ps => ps.DeviceId == deviceId);
+            // _db.DevicePortSets.RemoveRange(portSets);
+
+            if (device.DeviceConfigurationId is Guid cfgId)
+            {
+                // ensure no other non-deleted devices reference the same config
+                var otherUses = await _db.Devices
+                                         .AsNoTracking()
+                                         .AnyAsync(d => d.DeviceId != deviceId &&
+                                                        d.DeviceConfigurationId == cfgId &&
+                                                        !d.IsDeleted, ct);
+
+                if (otherUses)
+                {
+                    // detach only device, keep config
+                    _db.Devices.Remove(device);
+                    await _db.SaveChangesAsync(ct);
+                    _log.LogInformation("Hard-deleted device {DeviceId} but kept shared configuration {CfgId}", deviceId, cfgId);
+                    return;
+                }
+
+                // safe to delete the config too
+                var cfg = await _db.DeviceConfigurations.FindAsync(new object[] { cfgId }, ct);
+                if (cfg != null)
+                    _db.DeviceConfigurations.Remove(cfg);
+            }
+
+            _db.Devices.Remove(device);
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Hard-deleted device {DeviceId} and its configuration if not shared", deviceId);
+        }
+
     }
 }

@@ -23,5 +23,12 @@ namespace MyApp.Application.Interfaces
 
         // Get all devices (with configurations)
         Task<List<Device>> GetAllDevicesAsync(CancellationToken ct = default);
+
+        Task<List<Device>> GetDeletedDevicesAsync(CancellationToken ct = default);
+        Task<Device?> GetDeletedDeviceAsync(Guid deviceId, CancellationToken ct = default);
+        Task RestoreDeviceAsync(Guid deviceId, CancellationToken ct = default);
+        Task PermanentlyDeleteDeviceAsync(Guid deviceId, CancellationToken ct = default);
+
+
     }
 }

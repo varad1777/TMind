@@ -56,7 +56,11 @@ namespace MyApp.Infrastructure.Services
                         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                         // load current device ids
-                        var deviceIds = await db.Devices.Select(d => d.DeviceId).ToListAsync(stoppingToken);
+                        var deviceIds = await db.Devices
+                                .AsNoTracking()
+                                .Where(d => !d.IsDeleted)
+                                .Select(d => d.DeviceId)
+                                .ToListAsync(stoppingToken);
 
                         // start a long-running loop task for each device if not already running
                         foreach (var id in deviceIds)
@@ -153,6 +157,12 @@ namespace MyApp.Infrastructure.Services
                 return 1000; // safe default
             }
 
+            if (device.IsDeleted)
+            {
+                _log.LogInformation("Device {DeviceId} is soft-deleted - stopping polling", deviceId);
+                return 1000;
+            }
+
             if (device.DeviceConfigurationId == null)
             {
                 _log.LogDebug("Device {DeviceId} has no configuration - skipping", device.DeviceId);
@@ -184,7 +194,7 @@ namespace MyApp.Infrastructure.Services
                 return pollIntervalMs;
             }
 
-            var ports = await db.DevicePorts.Where(p => p.DeviceId == device.DeviceId && p.IsHealthy).ToListAsync(ct);
+            var ports = await db.DevicePorts.Where(p => p.DeviceId == device.DeviceId && p.IsHealthy && !device.IsDeleted).ToListAsync(ct);
             if (!ports.Any())
             {
                 _log.LogWarning("No healthy ports for device {Device}. Ip={Ip} Port={Port} Settings={Settings}", device.DeviceId, ip, port, cfg.ProtocolSettingsJson);
