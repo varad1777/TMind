@@ -42,19 +42,36 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices
         [HttpGet]
-        public async Task<IActionResult> GetAll(CancellationToken ct = default)
+        public async Task<IActionResult> GetAll(
+     int pageNumber = 1,
+     int pageSize = 10,
+     string? searchTerm = null,
+     CancellationToken ct = default)
         {
             try
             {
-                var devices = await _mgr.GetAllDevicesAsync(ct);
-                return Ok(ApiResponse<object>.Ok(devices));
+                var (devices, totalCount) = await _mgr.GetAllDevicesAsync(pageNumber, pageSize, searchTerm, ct);
+
+                var result = new
+                {
+                    Items = devices,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    TotalCount = totalCount,
+                    TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+                };
+
+                return Ok(ApiResponse<object>.Ok(result));
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "GetAll devices failed");
-                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
+                return StatusCode(
+                    (int)HttpStatusCode.InternalServerError,
+                    ApiResponse<object>.Fail("An unexpected error occurred."));
             }
         }
+
 
         // GET /api/devices/{id}
         [HttpGet("{id:guid}")]

@@ -22,7 +22,10 @@ namespace MyApp.Application.Interfaces
         Task<Device?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default);
 
         // Get all devices (with configurations)
-        Task<List<Device>> GetAllDevicesAsync(CancellationToken ct = default);
+        Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(int pageNumber,
+      int pageSize,
+      string? searchTerm,
+      CancellationToken ct = default);
 
         Task<List<Device>> GetDeletedDevicesAsync(CancellationToken ct = default);
         Task<Device?> GetDeletedDeviceAsync(Guid deviceId, CancellationToken ct = default);

@@ -19,6 +19,10 @@ namespace MyApp.Infrastructure.Services
         {
             if (string.IsNullOrWhiteSpace(dto.Name)) throw new ArgumentException("Name required");
 
+            int deviceCount = await _db.Devices.CountAsync(ct);
+            if (deviceCount >= 100)
+                throw new InvalidOperationException("Maximum number of devices (100) reached.");
+
             var device = new Device { Name = dto.Name, Description = dto.Description};
             await _db.Devices.AddAsync(device, ct);
 
@@ -165,20 +169,43 @@ namespace MyApp.Infrastructure.Services
             await _db.SaveChangesAsync(ct);
             _log.LogInformation("Updated device {DeviceId}", deviceId);
         }
-       
-        
-        
-        
-        public async Task<List<Device>> GetAllDevicesAsync(CancellationToken ct = default)
-        {
-            var devices = await _db.Devices
-                                   .Where(d => !d.IsDeleted) // ✅ exclude soft-deleted records
-                                   .Include(d => d.DeviceConfiguration)
-                                   .AsNoTracking()
-                                   .ToListAsync(ct);
 
-            return devices;
+
+
+
+      public async Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(
+      int pageNumber,
+      int pageSize,
+      string? searchTerm,
+      CancellationToken ct = default)
+        {
+            // Start query
+            var query = _db.Devices
+                           .Where(d => !d.IsDeleted)
+                           .Include(d => d.DeviceConfiguration)
+                           .AsNoTracking();
+
+            // Apply search
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                searchTerm = searchTerm.ToLower();
+                query = query.Where(d => d.Name.ToLower().Contains(searchTerm)
+                                      || (d.Description != null && d.Description.ToLower().Contains(searchTerm)));
+            }
+
+            // Get total count for pagination metadata
+            var totalCount = await query.CountAsync(ct);
+
+            // Apply pagination
+            var devices = await query
+                                .Skip((pageNumber - 1) * pageSize)
+                                .Take(pageSize)
+                                .ToListAsync(ct);
+
+            return (devices, totalCount);
         }
+
+
 
 
         public async Task DeleteDeviceAsync(Guid deviceId, CancellationToken ct = default)
