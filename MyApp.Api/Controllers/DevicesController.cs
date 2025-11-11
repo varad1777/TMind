@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using MyApp.Application.Dtos;
 using MyApp.Application.Interfaces;
 using System.Net;
@@ -14,6 +15,7 @@ namespace MyApp.Api.Controllers
         public DevicesController(IDeviceManager mgr, ILogger<DevicesController> log) { _mgr = mgr; _log = log; }
 
         // POST /api/devices
+        [Authorize(Policy ="AdminOnly")]
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateDeviceDto dto, CancellationToken ct = default)
         {
@@ -74,6 +76,7 @@ namespace MyApp.Api.Controllers
         }
 
         // PUT /api/devices/{id}
+        [Authorize(Policy = "AdminOnly")]
         [HttpPut("{id:guid}")]
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDeviceRequest request, CancellationToken ct = default)
         {
@@ -118,6 +121,7 @@ namespace MyApp.Api.Controllers
         }
 
         // DELETE /api/devices/{id}  -> soft delete
+        [Authorize(Policy = "AdminOnly")]
         [HttpDelete("{id:guid}")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct = default)
         {
@@ -142,6 +146,7 @@ namespace MyApp.Api.Controllers
         }
 
         // GET /api/devices/deleted
+        //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted")]
         public async Task<IActionResult> GetDeletedDevices(CancellationToken ct = default)
         {
@@ -158,6 +163,7 @@ namespace MyApp.Api.Controllers
         }
 
         // GET /api/devices/deleted/{id}
+        //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted/{id:guid}")]
         public async Task<IActionResult> GetDeletedDevice(Guid id, CancellationToken ct = default)
         {
@@ -175,6 +181,7 @@ namespace MyApp.Api.Controllers
         }
 
         // POST /api/devices/{id}/restore
+        [Authorize(Policy = "AdminOnly")]
         [HttpPost("{id:guid}/restore")]
         public async Task<IActionResult> RestoreDevice(Guid id, CancellationToken ct = default)
         {
@@ -200,6 +207,7 @@ namespace MyApp.Api.Controllers
         }
 
         // DELETE /api/devices/{id}/hard  -- permanent delete
+        [Authorize(Policy = "AdminOnly")]
         [HttpDelete("{id:guid}/hard")]
         public async Task<IActionResult> HardDeleteDevice(Guid id, CancellationToken ct = default)
         {
