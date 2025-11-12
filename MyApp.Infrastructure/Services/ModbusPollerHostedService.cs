@@ -231,7 +231,7 @@ namespace MyApp.Infrastructure.Services
                 //modbus expects zero-based addresses
                 // and humans often use 1-based addresses starting at 40001
                 // toProto normalizes to zero-based
-                if (dbUses40001) return dbAddr - 40001;
+                if (dbUses40001) return dbAddr - 40001; // 40003  - 40001 = 2
                 if (dbAddr > 0 && dbAddr < 40001) return dbAddr - 1;
                 return dbAddr;
             }

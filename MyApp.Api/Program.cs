@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MyApp.Application.Interfaces;
 using MyApp.Infrastructure.Data;
 using MyApp.Infrastructure.Services;
+using MyApp.Api.Extension;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddScoped<IDeviceManager, DeviceManager>();
 builder.Services.AddHostedService<ModbusPollerHostedService>();
+builder.Services.AddCustomAuthentication(builder.Configuration);
 // Allow your frontend to call the API
 builder.Services.AddCors(options =>
 {
