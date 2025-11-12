@@ -1,10 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using Modbus.Device;
+using MyApp.Application.Dtos;
 using MyApp.Domain.Entities;
 using MyApp.Infrastructure.Data;
 using System;
@@ -16,6 +18,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using MyApp.Infrastructure.SignalRHub;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MyApp.Infrastructure.Services
@@ -25,6 +28,7 @@ namespace MyApp.Infrastructure.Services
         private readonly IServiceProvider _sp;
         private readonly ILogger<ModbusPollerHostedService> _log;
         private readonly IConfiguration _config;
+        private readonly IHubContext<ModbusHub> _hub;
 
         // failure counters and console lock
         private static readonly ConcurrentDictionary<Guid, int> _failureCounts = new();
@@ -35,13 +39,16 @@ namespace MyApp.Infrastructure.Services
 
         private readonly int _failThreshold;
 
-        public ModbusPollerHostedService(IServiceProvider sp, ILogger<ModbusPollerHostedService> log, IConfiguration config)
+        public IHubContext<ModbusHub> Hub => _hub;
+
+        public ModbusPollerHostedService(IServiceProvider sp, ILogger<ModbusPollerHostedService> log, IConfiguration config, IHubContext<ModbusHub>? hub)
         {
             _sp = sp;
             _log = log;
             _config = config;
             _failThreshold = config?.GetValue<int?>("Modbus:FailureThreshold") ?? 3;
             if (_failThreshold <= 0) _failThreshold = 3;
+            _hub = hub;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -484,23 +491,39 @@ namespace MyApp.Infrastructure.Services
 
                         // saving omitted by design in original code
                         // Print telemetry buffer atomically
+                        // after you've prepared telemetryRows and 'now' variable
                         if (telemetryRows.Any())
                         {
-                            var sb = new StringBuilder();
-                            sb.AppendLine();
-                            sb.AppendLine("-- Prepared Telemetry --");
-                            sb.AppendLine(new string('-', 80));
-                            foreach (var t in telemetryRows)
+                            var telemetryDtos = telemetryRows.Select(t =>
                             {
-                                sb.AppendLine($"DevicePortId={t.DevicePortId} | Signal={t.SignalType} | Value={t.Value:G6} | Unit={t.Unit} | Time={t.Timestamp:O}");
-                            }
-                            sb.AppendLine(new string('-', 80));
+                                // find port metadata for port-index mapping
+                                var dp = ports.FirstOrDefault(p => p.DevicePortId == t.DevicePortId);
+                                // But better: telemetryRows already filled DevicePortId earlier. Use that
+                                return new TelemetryDto(
+                                    DeviceId: device.DeviceId,
+                                    DevicePortId: t.DevicePortId,
+                                    PortIndex: ports.FirstOrDefault(p => p.DevicePortId == t.DevicePortId)?.PortIndex ?? -1,
+                                    RegisterAddress: ports.FirstOrDefault(p => p.DevicePortId == t.DevicePortId)?.RegisterAddress ?? 0,
+                                    SignalType: t.SignalType,
+                                    Value: t.Value,
+                                    Unit: t.Unit,
+                                    Timestamp: t.Timestamp
+                                );
+                            }).ToList();
 
-                            lock (_consoleLock)
+                            try
                             {
-                                Console.Write(sb.ToString());
+                                // Send to all clients in the device group (group name = device id string)
+                                await Hub.Clients
+                                    .Group(device.DeviceId.ToString())
+                                    .SendAsync("TelemetryUpdate", telemetryDtos, ct);
+                            }
+                            catch (Exception hubEx)
+                            {
+                                _log.LogWarning(hubEx, "Failed to push telemetry to SignalR for device {Device}", device.DeviceId);
                             }
                         }
+
 
                         _log.LogDebug("Prepared {Count} telemetry rows for device {Device}", telemetryRows.Count, device.DeviceId);
                     }

@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using MyApp.Api.Extension;
 using MyApp.Application.Interfaces;
 using MyApp.Infrastructure.Data;
+using MyApp.Infrastructure.SignalRHub;
 using MyApp.Infrastructure.Services;
-using MyApp.Api.Extension;
+using Microsoft.AspNetCore.SignalR;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +20,8 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.AddScoped<IDeviceManager, DeviceManager>();
 builder.Services.AddHostedService<ModbusPollerHostedService>();
 builder.Services.AddCustomAuthentication(builder.Configuration);
+builder.Services.AddSignalR();
+
 // Allow your frontend to call the API
 builder.Services.AddCors(options =>
 {
@@ -44,6 +49,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 app.UseCors("AllowFrontend");
+app.MapHub<ModbusHub>("/hubs/modbus");
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
