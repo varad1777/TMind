@@ -36,58 +36,93 @@ namespace MyApp.Api.Extension
             // JWT Authentication configuration
             .AddJwtBearer(options =>
             {
-                // Token validation parameters specify karte hai ki token kaise verify hoga
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
-                    // Issuer (token dene wala) verify kare
                     ValidateIssuer = true,
-
-                    // Audience (token lene wala) verify kare
                     ValidateAudience = true,
-
-                    // Token expiry time verify kare
                     ValidateLifetime = true,
-
-                    // Token ke signing key ko verify kare
                     ValidateIssuerSigningKey = true,
-
-                    // Valid issuer value appsettings.json me define ki gayi hai
                     ValidIssuer = configuration["Jwt:Issuer"],
-
-                    // Valid audience value appsettings.json me define ki gayi hai
                     ValidAudience = configuration["Jwt:Audience"],
-
-                    // Token ko verify karne ke liye symmetric security key use hoti hai
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(configuration["Jwt:Key"])),
-
-                    // Token ke andar role claim ko identify kare
                     RoleClaimType = ClaimTypes.Role,
-
-                    // ClockSkew zero karne se token exact expiry time par expire hoga
-                    ClockSkew = TimeSpan.Zero
+                    ClockSkew = TimeSpan.Zero // Ensures exact expiry time
                 };
 
-                // JWT events handle karne ke liye (custom logic ke liye)
                 options.Events = new JwtBearerEvents
                 {
-                    // Ye event token ko request ke cookies se read karta hai
                     OnMessageReceived = context =>
                     {
+                        // Read token from cookie
                         var token = context.Request.Cookies["access_token"];
                         if (!string.IsNullOrEmpty(token))
                             context.Token = token;
                         return Task.CompletedTask;
                     },
-                    // Agar authentication fail hoti hai to error log karta hai
+
                     OnAuthenticationFailed = context =>
                     {
                         var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
                         logger.LogError(context.Exception, "JWT Authentication failed");
+
+                        if (context.Exception is SecurityTokenExpiredException)
+                        {
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.Response.ContentType = "application/json";
+                            var result = System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                message = "Access Denied: Token Expired",
+                                status = 401
+                            });
+                            return context.Response.WriteAsync(result);
+                        }
+
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        context.Response.ContentType = "application/json";
+                        var genericError = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            message = "Access Denied: Invalid Token",
+                            status = 401
+                        });
+                        return context.Response.WriteAsync(genericError);
+                    },
+
+                    OnChallenge = context =>
+                    {
+                        // If token is missing or invalid
+                        if (!context.Handled)
+                        {
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            context.Response.ContentType = "application/json";
+                            var result = System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                message = "Access Denied: Token Missing or Invalid",
+                                status = 401
+                            });
+                            return context.Response.WriteAsync(result);
+                        }
                         return Task.CompletedTask;
                     }
+
+                     OnForbidden = context =>
+                     {
+                         // 🔸 User authenticated but not authorized (role mismatch)
+                         context.Response.StatusCode = 402; // custom code instead of 403
+                         context.Response.ContentType = "application/json";
+
+                         var result = System.Text.Json.JsonSerializer.Serialize(new
+                         {
+                             status = 402,
+                             message = "Access Denied: You do not have permission to access this resource."
+                         });
+
+                         return context.Response.WriteAsync(result);
+                     }
                 };
             });
+
 
             // Authorization policies define karna
             services.AddAuthorization(options =>
