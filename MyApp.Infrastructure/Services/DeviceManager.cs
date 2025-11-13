@@ -69,13 +69,12 @@ namespace MyApp.Infrastructure.Services
 
 
         // remove: using System.Text.Json;
-
         public async Task UpdateDeviceAsync(Guid deviceId, UpdateDeviceDto dto, DeviceConfigurationDto? configDto = null, CancellationToken ct = default)
         {
             var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
             if (device == null) throw new KeyNotFoundException("Device not found");
 
-            // ✅ Prevent updates to soft-deleted devices
+            // Prevent updates to soft-deleted devices
             if (device.IsDeleted)
                 throw new InvalidOperationException("Cannot update a deleted device.");
 
@@ -85,6 +84,26 @@ namespace MyApp.Infrastructure.Services
                 var trimmed = dto.Name.Trim();
                 if (trimmed.Length < 3 || trimmed.Length > 100)
                     throw new ArgumentException("Device name must be between 3 and 100 characters.", nameof(dto.Name));
+
+                // Check uniqueness only when the new name is different from current (case-insensitive)
+                var newNameNorm = trimmed.ToLowerInvariant();
+                var currentNameNorm = (device.Name ?? string.Empty).ToLowerInvariant();
+
+                if (newNameNorm != currentNameNorm)
+                {
+                    // Exclude this device and any soft-deleted devices from the uniqueness check
+                    var exists = await _db.Devices
+                                          .AsNoTracking()
+                                          .AnyAsync(d =>
+                                              d.DeviceId != deviceId
+                                              && !d.IsDeleted
+                                              && d.Name.ToLower() == newNameNorm,
+                                              ct);
+
+                    if (exists)
+                        throw new ArgumentException("A device with the same name already exists.");
+                }
+
                 device.Name = trimmed;
             }
 
@@ -103,7 +122,6 @@ namespace MyApp.Infrastructure.Services
                     throw new ArgumentException("Protocol must be a non-empty value up to 100 characters.", nameof(dto.Protocol));
                 device.Protocol = trimmedProto;
             }
-            
 
             // Handle configuration update/create when configDto is provided
             if (configDto != null)
@@ -185,9 +203,7 @@ namespace MyApp.Infrastructure.Services
         }
 
 
-
-
-      public async Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(
+        public async Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(
       int pageNumber,
       int pageSize,
       string? searchTerm,
