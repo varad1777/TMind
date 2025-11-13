@@ -15,15 +15,29 @@ namespace MyApp.Infrastructure.Services
         private readonly ILogger<DeviceManager> _log;
         public DeviceManager(AppDbContext db, ILogger<DeviceManager> log) { _db = db; _log = log; }
 
+
+
+
         public async Task<Guid> CreateDeviceAsync(CreateDeviceDto dto, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(dto.Name)) throw new ArgumentException("Name required");
+            if (string.IsNullOrWhiteSpace(dto.Name))
+                throw new ArgumentException("Name required");
+
+            
+            bool nameExists = await _db.Devices
+                .AnyAsync(d => d.Name.ToLower() == dto.Name.ToLower() && !d.IsDeleted, ct);
+            if (nameExists)
+                throw new InvalidOperationException($"Device name '{dto.Name}' already exists.");
 
             int deviceCount = await _db.Devices.CountAsync(ct);
             if (deviceCount >= 100)
                 throw new InvalidOperationException("Maximum number of devices (100) reached.");
 
-            var device = new Device { Name = dto.Name, Description = dto.Description};
+            var device = new Device
+            {
+                Name = dto.Name,
+                Description = dto.Description
+            };
             await _db.Devices.AddAsync(device, ct);
 
             var portSet = new DevicePortSet { DeviceId = device.DeviceId };

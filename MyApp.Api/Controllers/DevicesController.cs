@@ -35,6 +35,10 @@ namespace MyApp.Api.Controllers
             {
                 return BadRequest(ApiResponse<object>.Fail(aex.Message));
             }
+            catch (InvalidOperationException IE)
+            {
+                return BadRequest(ApiResponse<object>.Fail(IE.Message));
+            }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Create device failed");
