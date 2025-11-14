@@ -13,27 +13,20 @@ namespace MyApp.Api.Extension
             // Adding authentication service to the application
             services.AddAuthentication(options =>
             {
-                // Agar system ko kahin clear nahi bataya gaya ki kaunsa authentication use karna hai,
-                // to Cookie Authentication default scheme hogi.
+                // Default authentication scheme
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
 
-                // Jab user ko verify (authenticate) karna ho, to JWT Token se verify karega.
+                // Default authenticate scheme (JWT)
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-
             })
-            // Cookie Authentication configuration
+            // ✅ Cookie Authentication
             .AddCookie(options =>
             {
-                // Cookies sirf HTTPS ke through hi aayengi
                 options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-
-                // Cross-site request ke liye bhi cookies send karne ke liye (for frontend-backend communication)
                 options.Cookie.SameSite = SameSiteMode.None;
-
-                // Cookie 15 minutes ke liye valid rahegi
                 options.ExpireTimeSpan = TimeSpan.FromMinutes(15);
             })
-            // JWT Authentication configuration
+            // ✅ JWT Authentication
             .AddJwtBearer(options =>
             {
                 options.TokenValidationParameters = new TokenValidationParameters
@@ -47,50 +40,85 @@ namespace MyApp.Api.Extension
                     IssuerSigningKey = new SymmetricSecurityKey(
                         Encoding.UTF8.GetBytes(configuration["Jwt:Key"])),
                     RoleClaimType = ClaimTypes.Role,
-                    ClockSkew = TimeSpan.Zero // Ensures exact expiry time
+                    ClockSkew = TimeSpan.Zero
                 };
 
                 options.Events = new JwtBearerEvents
                 {
-                    OnMessageReceived = context =>
+                    // 🔸 Extract token from cookie safely
+                    OnMessageReceived = async context =>
                     {
-                        // Read token from cookie
                         var token = context.Request.Cookies["access_token"];
+
                         if (!string.IsNullOrEmpty(token))
-                            context.Token = token;
-                        return Task.CompletedTask;
+                        {
+                            // ✅ Basic structure validation (must be header.payload.signature)
+                            if (token.Count(c => c == '.') == 2)
+                            {
+                                context.Token = token;
+                            }
+                            else
+                            {
+                                context.NoResult();
+                                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                                context.Response.ContentType = "application/json";
+
+                                var result = System.Text.Json.JsonSerializer.Serialize(new
+                                {
+                                    status = 401,
+                                    message = "Access Denied: Invalid token format in cookie"
+                                });
+
+                                await context.Response.WriteAsync(result);
+                            }
+                        }
                     },
 
+                    // 🔸 Handles expired, tampered, or invalid signature tokens
                     OnAuthenticationFailed = context =>
                     {
                         var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
                         logger.LogError(context.Exception, "JWT Authentication failed");
 
-                        if (context.Exception is SecurityTokenExpiredException)
+                        var response = context.Response;
+                        var request = context.HttpContext.Request;
+
+                        // ❌ Remove bad cookie
+                        if (request.Cookies.ContainsKey("access_token"))
                         {
-                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                            context.Response.ContentType = "application/json";
-                            var result = System.Text.Json.JsonSerializer.Serialize(new
+                            response.Cookies.Delete("access_token", new CookieOptions
                             {
-                                message = "Access Denied: Token Expired",
-                                status = 401
+                                HttpOnly = true,
+                                Secure = true,
+                                SameSite = SameSiteMode.None
                             });
-                            return context.Response.WriteAsync(result);
                         }
 
-                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                        context.Response.ContentType = "application/json";
-                        var genericError = System.Text.Json.JsonSerializer.Serialize(new
+                        response.StatusCode = StatusCodes.Status401Unauthorized;
+                        response.ContentType = "application/json";
+
+                        string message = context.Exception switch
                         {
-                            message = "Access Denied: Invalid Token",
-                            status = 401
+                            SecurityTokenExpiredException => "Access Denied: Token expired",
+                            SecurityTokenInvalidSignatureException => "Access Denied: Invalid token signature (tampered)",
+                            SecurityTokenInvalidAudienceException => "Access Denied: Invalid audience",
+                            SecurityTokenInvalidIssuerException => "Access Denied: Invalid issuer",
+                            ArgumentException => "Access Denied: Malformed token",
+                            _ => "Access Denied: Invalid or tampered token"
+                        };
+
+                        var result = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            status = 401,
+                            message
                         });
-                        return context.Response.WriteAsync(genericError);
+
+                        return response.WriteAsync(result);
                     },
 
+                    // 🔸 Handles missing token or failed challenge
                     OnChallenge = context =>
                     {
-                        // If token is missing or invalid
                         if (!context.Handled)
                         {
                             context.HandleResponse();
@@ -98,7 +126,7 @@ namespace MyApp.Api.Extension
                             context.Response.ContentType = "application/json";
                             var result = System.Text.Json.JsonSerializer.Serialize(new
                             {
-                                message = "Access Denied: Token Missing or Invalid",
+                                message = "Access Denied: Token missing or invalid",
                                 status = 401
                             });
                             return context.Response.WriteAsync(result);
@@ -106,31 +134,28 @@ namespace MyApp.Api.Extension
                         return Task.CompletedTask;
                     },
 
-                     OnForbidden = context =>
-                     {
-                         // 🔸 User authenticated but not authorized (role mismatch)
-                         context.Response.StatusCode = 402; // custom code instead of 403
-                         context.Response.ContentType = "application/json";
+                    // Handles forbidden (role-based restriction)
+                    OnForbidden = context =>
+                    {
+                        context.Response.StatusCode = 403;
+                        context.Response.ContentType = "application/json";
 
-                         var result = System.Text.Json.JsonSerializer.Serialize(new
-                         {
-                             status = 402,
-                             message = "Access Denied: You do not have permission to access this resource."
-                         });
+                        var result = System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            status = 403,
+                            message = "Access Denied: You do not have permission to access this resource."
+                        });
 
-                         return context.Response.WriteAsync(result);
-                     }
+                        return context.Response.WriteAsync(result);
+                    }
+
                 };
             });
 
-
-            // Authorization policies define karna
+            // ✅ Define Authorization Policies
             services.AddAuthorization(options =>
             {
-                // Sirf "Admin" role wale users ke liye access allow karega
                 options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-
-                // "Manager" ya "Admin" dono roles ke users ke liye access allow karega
                 options.AddPolicy("ManagerOrAdmin", policy => policy.RequireRole("Manager", "Admin"));
             });
 
