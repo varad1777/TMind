@@ -104,7 +104,7 @@ namespace MyApp.Api.Extension
                             return context.Response.WriteAsync(result);
                         }
                         return Task.CompletedTask;
-                    }
+                    },
 
                      OnForbidden = context =>
                      {
@@ -137,4 +137,4 @@ namespace MyApp.Api.Extension
             return services;
         }
     }
-}
+};
