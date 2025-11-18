@@ -280,7 +280,7 @@ namespace MyApp.Infrastructure.Services
             while (idx < protoPorts.Count)
             {
                 int start = protoPorts[idx].ProtoAddr; // 0 , 1, 2 
-                int end = start + protoPorts[idx].Length - 1;
+                int end = start + protoPorts[idx].Length - 1; 
                 var items = new List<dynamic> { protoPorts[idx] };
                 idx++;
                 // protoPorts[0] = { ProtoAddr = 0, Length = 2 }
@@ -305,6 +305,9 @@ namespace MyApp.Infrastructure.Services
                         end = start + ModbusMaxRegistersPerRead - 1;
                         break;
                     }
+
+                    // p1 -> 0 -> 0 - 1
+                    // p2 -> 2 -> 2 - 3
                     // Modbus cannot read more than 125 registers at once.
                     //If your combined group exceeds 125 → stop grouping here.
                 }
@@ -533,9 +536,9 @@ namespace MyApp.Infrastructure.Services
                     }
                 }
             }
-            catch (SocketException sex)
+            catch (SocketException s_ex)
             {
-                _log.LogWarning(sex, "Device {Device} unreachable {Ip}:{Port}", device.DeviceId, ip, port);
+                _log.LogWarning(s_ex, "Device {Device} unreachable {Ip}:{Port}", device.DeviceId, ip, port);
             }
             catch (Exception ex)
             {

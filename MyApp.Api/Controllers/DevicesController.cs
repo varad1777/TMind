@@ -15,8 +15,9 @@ namespace MyApp.Api.Controllers
         public DevicesController(IDeviceManager mgr, ILogger<DevicesController> log) { _mgr = mgr; _log = log; }
 
         // POST /api/devices
-        [Authorize(Policy ="AdminOnly")]
+
         [HttpPost]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([FromBody] CreateDeviceDto dto, CancellationToken ct = default)
         {
             if (!ModelState.IsValid)
@@ -48,6 +49,9 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices
         [HttpGet]
+        [Authorize]
+        [AllowAnonymous]
+
         public async Task<IActionResult> GetAll(
      int pageNumber = 1,
      int pageSize = 10,
@@ -81,6 +85,8 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices/{id}
         [HttpGet("{id:guid}")]
+        [Authorize]
+        [AllowAnonymous]
         public async Task<IActionResult> Get(Guid id, CancellationToken ct = default)
         {
             try
@@ -97,8 +103,9 @@ namespace MyApp.Api.Controllers
         }
 
         // PUT /api/devices/{id}
-        [Authorize(Policy = "AdminOnly")]
+
         [HttpPut("{id:guid}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDeviceRequest request, CancellationToken ct = default)
         {
             if (request == null)
@@ -142,8 +149,9 @@ namespace MyApp.Api.Controllers
         }
 
         // DELETE /api/devices/{id}  -> soft delete
-        [Authorize(Policy = "AdminOnly")]
+
         [HttpDelete("{id:guid}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct = default)
         {
             try
@@ -169,6 +177,7 @@ namespace MyApp.Api.Controllers
         // GET /api/devices/deleted
         //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetDeletedDevices(CancellationToken ct = default)
         {
             try
@@ -186,6 +195,7 @@ namespace MyApp.Api.Controllers
         // GET /api/devices/deleted/{id}
         //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted/{id:guid}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetDeletedDevice(Guid id, CancellationToken ct = default)
         {
             try
@@ -202,8 +212,9 @@ namespace MyApp.Api.Controllers
         }
 
         // POST /api/devices/{id}/restore
-        [Authorize(Policy = "AdminOnly")]
+
         [HttpPost("{id:guid}/restore")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> RestoreDevice(Guid id, CancellationToken ct = default)
         {
             try
@@ -228,8 +239,9 @@ namespace MyApp.Api.Controllers
         }
 
         // DELETE /api/devices/{id}/hard  -- permanent delete
-        [Authorize(Policy = "AdminOnly")]
+
         [HttpDelete("{id:guid}/hard")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> HardDeleteDevice(Guid id, CancellationToken ct = default)
         {
             try
