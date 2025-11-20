@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MyApp.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using MyApp.Infrastructure.Data;
 namespace MyApp.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251119060140_some changes")]
+    partial class somechanges
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -42,7 +45,7 @@ namespace MyApp.Infrastructure.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("Protocol")
                         .HasColumnType("nvarchar(max)");
@@ -50,6 +53,9 @@ namespace MyApp.Infrastructure.Migrations
                     b.HasKey("DeviceId");
 
                     b.HasIndex("DeviceConfigurationId");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
 
                     b.ToTable("Devices");
                 });
@@ -84,6 +90,10 @@ namespace MyApp.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uniqueidentifier");
 
@@ -92,34 +102,6 @@ namespace MyApp.Infrastructure.Migrations
 
                     b.Property<int>("PortIndex")
                         .HasColumnType("int");
-
-                    b.HasKey("DevicePortId");
-
-                    b.HasIndex("DeviceId", "PortIndex")
-                        .IsUnique();
-
-                    b.ToTable("DevicePorts");
-                });
-
-            modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
-                {
-                    b.Property<Guid>("RegisterId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ByteOrder")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("DataType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<Guid>("DevicePortId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<bool>("IsHealthy")
-                        .HasColumnType("bit");
 
                     b.Property<int>("RegisterAddress")
                         .HasColumnType("int");
@@ -131,18 +113,36 @@ namespace MyApp.Infrastructure.Migrations
                         .HasColumnType("float");
 
                     b.Property<string>("Unit")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<bool>("WordSwap")
-                        .HasColumnType("bit");
+                    b.HasKey("DevicePortId");
 
-                    b.HasKey("RegisterId");
+                    b.HasIndex("DeviceId", "PortIndex");
 
-                    b.HasIndex("DevicePortId", "RegisterAddress")
-                        .IsUnique();
+                    b.ToTable("DevicePorts");
+                });
 
-                    b.ToTable("Registers");
+            modelBuilder.Entity("MyApp.Domain.Entities.DevicePortSet", b =>
+                {
+                    b.Property<Guid>("PortSetId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("PortSetId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("DevicePortSets");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
@@ -157,7 +157,7 @@ namespace MyApp.Infrastructure.Migrations
             modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
                 {
                     b.HasOne("MyApp.Domain.Entities.Device", "Device")
-                        .WithMany("DevicePorts")
+                        .WithMany("Ports")
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -165,25 +165,20 @@ namespace MyApp.Infrastructure.Migrations
                     b.Navigation("Device");
                 });
 
-            modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
+            modelBuilder.Entity("MyApp.Domain.Entities.DevicePortSet", b =>
                 {
-                    b.HasOne("MyApp.Domain.Entities.DevicePort", "DevicePort")
-                        .WithMany("Registers")
-                        .HasForeignKey("DevicePortId")
+                    b.HasOne("MyApp.Domain.Entities.Device", "Device")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("DevicePort");
+                    b.Navigation("Device");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
                 {
-                    b.Navigation("DevicePorts");
-                });
-
-            modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
-                {
-                    b.Navigation("Registers");
+                    b.Navigation("Ports");
                 });
 #pragma warning restore 612, 618
         }

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MyApp.Infrastructure.Data;
 
@@ -11,9 +12,11 @@ using MyApp.Infrastructure.Data;
 namespace MyApp.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251119133339_some changes4")]
+    partial class somechanges4
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -101,6 +104,22 @@ namespace MyApp.Infrastructure.Migrations
                     b.ToTable("DevicePorts");
                 });
 
+            modelBuilder.Entity("MyApp.Domain.Entities.DevicePortSet", b =>
+                {
+                    b.Property<Guid>("PortSetId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("PortSetId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("DevicePortSets");
+                });
+
             modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
                 {
                     b.Property<Guid>("RegisterId")
@@ -112,8 +131,7 @@ namespace MyApp.Infrastructure.Migrations
 
                     b.Property<string>("DataType")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("DevicePortId")
                         .HasColumnType("uniqueidentifier");
@@ -131,8 +149,7 @@ namespace MyApp.Infrastructure.Migrations
                         .HasColumnType("float");
 
                     b.Property<string>("Unit")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("WordSwap")
                         .HasColumnType("bit");
@@ -157,7 +174,18 @@ namespace MyApp.Infrastructure.Migrations
             modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
                 {
                     b.HasOne("MyApp.Domain.Entities.Device", "Device")
-                        .WithMany("DevicePorts")
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("MyApp.Domain.Entities.DevicePortSet", b =>
+                {
+                    b.HasOne("MyApp.Domain.Entities.Device", "Device")
+                        .WithMany("DevicePortSets")
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -178,7 +206,7 @@ namespace MyApp.Infrastructure.Migrations
 
             modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
                 {
-                    b.Navigation("DevicePorts");
+                    b.Navigation("DevicePortSets");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>

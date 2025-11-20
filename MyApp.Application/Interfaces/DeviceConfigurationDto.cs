@@ -22,7 +22,7 @@ namespace MyApp.Application.Interfaces
         Task<Device?> GetDeviceAsync(Guid deviceId, CancellationToken ct = default);
 
         // Get all devices (with configurations)
-        Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(int pageNumber,
+        Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(int pageNumber, 
       int pageSize,
       string? searchTerm,
       CancellationToken ct = default);
@@ -33,5 +33,16 @@ namespace MyApp.Application.Interfaces
         Task PermanentlyDeleteDeviceAsync(Guid deviceId, CancellationToken ct = default);
 
 
+        // Create and attach a configuration to a device
+        Task<Guid> AddConfigurationAsync(Guid deviceId, DeviceConfigurationDto dto, CancellationToken ct = default);
+
+        Task<List<DevicePort>> GetPortsByDeviceAsync(Guid deviceId , CancellationToken ct);
+
+        Task<DevicePort?> GetPortAsync(Guid deviceId, int portIndex, CancellationToken ct = default);
+
+
+
+        Task UpdatePortAsync(Guid deviceId, int portIndex, AddPortDto dto, CancellationToken ct = default);
+        Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default);
     }
 }

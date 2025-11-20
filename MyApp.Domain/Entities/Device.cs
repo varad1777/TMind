@@ -13,6 +13,8 @@ namespace MyApp.Domain.Entities
         public Boolean IsDeleted { get; set; } = false;
         public Guid? DeviceConfigurationId { get; set; }
         public DeviceConfiguration? DeviceConfiguration { get; set; }
+        public ICollection<DevicePort> DevicePorts { get; set; } = new List<DevicePort>();
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

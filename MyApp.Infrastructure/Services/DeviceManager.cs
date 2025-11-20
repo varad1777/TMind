@@ -18,56 +18,59 @@ namespace MyApp.Infrastructure.Services
 
 
 
-        public async Task<Guid> CreateDeviceAsync(CreateDeviceDto dto, CancellationToken ct = default)
+
+        public async Task<Guid> CreateDeviceAsync(CreateDeviceDto request, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(dto.Name))
-                throw new ArgumentException("Name required");
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            var name = (request.Name ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(name)) throw new ArgumentException("Device name is required.", nameof(request.Name));
 
-            
-            bool nameExists = await _db.Devices
-                .AnyAsync(d => d.Name.ToLower() == dto.Name.ToLower() && !d.IsDeleted, ct);
-            if (nameExists)
-                throw new InvalidOperationException($"Device name '{dto.Name}' already exists.");
+            var exists = await _db.Devices
+                                 .AsNoTracking()
+                                 .AnyAsync(d => !d.IsDeleted && d.Name.ToLower() == name.ToLower(), ct);
+            if (exists) throw new InvalidOperationException($"Device name '{name}' already exists.");
 
-            int deviceCount = await _db.Devices.CountAsync(ct);
-            if (deviceCount >= 100)
-                throw new InvalidOperationException("Maximum number of devices (100) reached.");
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
 
             var device = new Device
             {
-                Name = dto.Name,
-                Description = dto.Description
+                DeviceId = Guid.NewGuid(),
+                Name = name,
+                Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim()
             };
+
             await _db.Devices.AddAsync(device, ct);
 
-            var portSet = new DevicePortSet { DeviceId = device.DeviceId };
-            await _db.DevicePortSets.AddAsync(portSet, ct);
+           
 
-            int baseAddress = 40001;
-            var units = new[] { "V", "A", "°C", "Hz", "mm/s", "L/min", "rpm", "N·m" };
+           
 
-            for (int i = 0; i < 8; i++)
+            if (request.Configuration != null)
             {
-                _db.DevicePorts.Add(new DevicePort
+                string protoJson = request.Configuration.ProtocolSettingsJson;
+                if (string.IsNullOrWhiteSpace(protoJson) || protoJson.Trim() == "{}")
                 {
-                    PortSetId = portSet.PortSetId,
-                    PortIndex = i,
-                    RegisterAddress = baseAddress + (i * 2),
-                    RegisterLength = 2,
-                    DataType = "float32",
-                    Scale = 1.0,
-                    IsHealthy = true,
-                    Unit = units[i],
-                    DeviceId = device.DeviceId
-                });
+                    protoJson = JsonSerializer.Serialize(request.Configuration);
+                }
+
+                var cfg = new DeviceConfiguration
+                {
+                    ConfigurationId = Guid.NewGuid(),
+                    Name = string.IsNullOrWhiteSpace(request.Configuration.Name) ? $"{device.Name}-cfg" : request.Configuration.Name.Trim(),
+                    PollIntervalMs = request.Configuration.PollIntervalMs > 0 ? request.Configuration.PollIntervalMs : 1000,
+                    ProtocolSettingsJson = protoJson
+                };
+
+                await _db.DeviceConfigurations.AddAsync(cfg, ct);
+                device.DeviceConfigurationId = cfg.ConfigurationId;
             }
 
             await _db.SaveChangesAsync(ct);
-            _log.LogInformation("Created device {DeviceId} with portset {PortSet}", device.DeviceId, portSet.PortSetId);
+            await tx.CommitAsync(ct);
+
+            _log.LogInformation("Created device {DeviceId}", device.DeviceId);
             return device.DeviceId;
         }
-
-
         // remove: using System.Text.Json;
         public async Task UpdateDeviceAsync(Guid deviceId, UpdateDeviceDto dto, DeviceConfigurationDto? configDto = null, CancellationToken ct = default)
         {
@@ -201,6 +204,13 @@ namespace MyApp.Infrastructure.Services
             await _db.SaveChangesAsync(ct);
             _log.LogInformation("Updated device {DeviceId}", deviceId);
         }
+
+
+
+
+
+
+
 
 
         public async Task<(List<Device> Devices, int TotalCount)> GetAllDevicesAsync(
@@ -364,5 +374,186 @@ namespace MyApp.Infrastructure.Services
             _log.LogInformation("Hard-deleted device {DeviceId} and its configuration if not shared", deviceId);
         }
 
-    }
+        public async Task<Guid> AddConfigurationAsync(Guid deviceId, DeviceConfigurationDto dto, CancellationToken ct = default)
+        {
+            if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+            var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
+            if (device == null) throw new KeyNotFoundException("Device not found");
+            if (device.IsDeleted) throw new InvalidOperationException("Cannot attach configuration to a deleted device.");
+
+            var cfg = new DeviceConfiguration
+            {
+                ConfigurationId = Guid.NewGuid(),
+                Name = string.IsNullOrWhiteSpace(dto.Name) ? $"{device.Name}-cfg" : dto.Name.Trim(),
+                PollIntervalMs = dto.PollIntervalMs > 0 ? dto.PollIntervalMs : 1000,
+                ProtocolSettingsJson = string.IsNullOrWhiteSpace(dto.ProtocolSettingsJson) ? "{}" : dto.ProtocolSettingsJson
+            };
+
+            await _db.DeviceConfigurations.AddAsync(cfg, ct);
+            device.DeviceConfigurationId = cfg.ConfigurationId;
+            await _db.SaveChangesAsync(ct);
+
+            _log.LogInformation("Added configuration {CfgId} to device {DeviceId}", cfg.ConfigurationId, deviceId);
+            return cfg.ConfigurationId;
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        public async Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default)
+        {
+            if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+            var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
+            if (device == null || device.IsDeleted) throw new KeyNotFoundException("Device not found");
+
+            var exists = await _db.DevicePorts.AnyAsync(p => p.DeviceId == deviceId && p.PortIndex == dto.PortIndex, ct);
+            if (exists) throw new InvalidOperationException($"Port with index {dto.PortIndex} already exists");
+
+            var port = new DevicePort
+            {
+                DeviceId = deviceId,
+                PortIndex = dto.PortIndex,
+                IsHealthy = dto.IsHealthy,
+                Registers = dto.Registers.Select(r => new Register
+                {
+                    RegisterAddress = r.RegisterAddress,
+                    RegisterLength = r.RegisterLength,
+                    DataType = r.DataType,
+                    Scale = r.Scale,
+                    Unit = r.Unit,
+                    ByteOrder = r.ByteOrder,
+                    WordSwap = r.WordSwap,
+                    IsHealthy = r.IsHealthy
+                }).ToList()
+            };
+
+            await _db.DevicePorts.AddAsync(port, ct);
+            await _db.SaveChangesAsync(ct);
+            return port.DevicePortId;
+        }
+
+        // Update port: REPLACE registers with DTO list — robust approach
+        public async Task UpdatePortAsync(Guid deviceId, int portIndex, AddPortDto dto, CancellationToken ct = default)
+        {
+            if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+            // find the port
+            var port = await _db.DevicePorts
+                .AsNoTracking() // load fresh, we'll attach as needed
+                .FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.PortIndex == portIndex, ct);
+
+            if (port == null) throw new KeyNotFoundException($"Port {portIndex} not found for device");
+
+            // Start a transaction for atomicity
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+            try
+            {
+                // 1) Delete existing registers for this port by DB query (ensures matching rows are deleted)
+                var existingRegisters = _db.Registers.Where(r => r.DevicePortId == port.DevicePortId);
+                _db.Registers.RemoveRange(existingRegisters);
+                await _db.SaveChangesAsync(ct); // commit deletes
+
+                // 2) Attach the port entity so we can update its properties and add new registers
+                port = await _db.DevicePorts.FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.PortIndex == portIndex, ct);
+                if (port == null)
+                {
+                    // very unlikely (deleted between calls)
+                    throw new InvalidOperationException("Port disappeared during update; please retry.");
+                }
+
+                port.IsHealthy = dto.IsHealthy;
+
+                // 3) Add new registers from DTO
+                var newRegisters = dto.Registers.Select(r => new Register
+                {
+                    RegisterAddress = r.RegisterAddress,
+                    RegisterLength = r.RegisterLength,
+                    DataType = r.DataType,
+                    Scale = r.Scale,
+                    Unit = r.Unit,
+                    ByteOrder = r.ByteOrder,
+                    WordSwap = r.WordSwap,
+                    IsHealthy = r.IsHealthy,
+                    DevicePortId = port.DevicePortId
+                }).ToList();
+
+                // Use AddRange on DB set so EF tracks them correctly
+                await _db.Registers.AddRangeAsync(newRegisters, ct);
+
+                // Save all changes (adds)
+                await _db.SaveChangesAsync(ct);
+
+                // commit transaction
+                await tx.CommitAsync(ct);
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                _log.LogError(ex, "Concurrency error updating port {DeviceId}/{PortIndex}", deviceId, portIndex);
+                await tx.RollbackAsync(ct);
+                throw new InvalidOperationException("Concurrency error while updating port", ex);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Error updating port {DeviceId}/{PortIndex}", deviceId, portIndex);
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+        }
+
+        // optional getter
+        public async Task<DevicePort?> GetPortAsync(Guid deviceId, int portIndex, CancellationToken ct = default)
+        {
+            return await _db.DevicePorts
+                .Include(p => p.Registers)
+                .FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.PortIndex == portIndex, ct);
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        public async Task<List<DevicePort>> GetPortsByDeviceAsync(Guid deviceId, CancellationToken ct)
+        {
+            if (deviceId == Guid.Empty)
+                throw new ArgumentException("Device ID cannot be empty.", nameof(deviceId));
+
+            return await _db.DevicePorts
+                .Include(p => p.Registers)     
+                .Where(p => p.DeviceId == deviceId)
+                .ToListAsync(ct);
+        }
+ }
 }

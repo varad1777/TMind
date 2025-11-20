@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace MyApp.Domain.Entities
 {
-    public class DevicePortSet
+    public class DevicePortSet2
     {
 
         [Key]

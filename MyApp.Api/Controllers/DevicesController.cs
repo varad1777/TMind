@@ -2,7 +2,13 @@
 using Microsoft.AspNetCore.Mvc;
 using MyApp.Application.Dtos;
 using MyApp.Application.Interfaces;
+using MyApp.Domain.Entities;
+using MyApp.Infrastructure.Services;
+using System;
+using System.Linq;
 using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MyApp.Api.Controllers
 {
@@ -12,17 +18,24 @@ namespace MyApp.Api.Controllers
     {
         private readonly IDeviceManager _mgr;
         private readonly ILogger<DevicesController> _log;
-        public DevicesController(IDeviceManager mgr, ILogger<DevicesController> log) { _mgr = mgr; _log = log; }
+
+        public DevicesController(IDeviceManager mgr, ILogger<DevicesController> log)
+        {
+            _mgr = mgr;
+            _log = log;
+        }
 
         // POST /api/devices
-
         [HttpPost]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([FromBody] CreateDeviceDto dto, CancellationToken ct = default)
         {
             if (!ModelState.IsValid)
             {
-                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+                var errors = ModelState.Values
+                               .SelectMany(v => v.Errors)
+                               .Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? e.Exception?.Message : e.ErrorMessage)
+                               .Where(s => !string.IsNullOrWhiteSpace(s));
                 return BadRequest(ApiResponse<object>.Fail($"Validation failed: {string.Join("; ", errors)}"));
             }
 
@@ -36,9 +49,9 @@ namespace MyApp.Api.Controllers
             {
                 return BadRequest(ApiResponse<object>.Fail(aex.Message));
             }
-            catch (InvalidOperationException IE)
+            catch (InvalidOperationException iex)
             {
-                return BadRequest(ApiResponse<object>.Fail(IE.Message));
+                return Conflict(ApiResponse<object>.Fail(iex.Message));
             }
             catch (Exception ex)
             {
@@ -49,19 +62,19 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices
         [HttpGet]
-        [Authorize]
         [AllowAnonymous]
-
         public async Task<IActionResult> GetAll(
-     int pageNumber = 1,
-     int pageSize = 10,
-     string? searchTerm = null,
-     CancellationToken ct = default)
+            int pageNumber = 1,
+            int pageSize = 10,
+            string? searchTerm = null,
+            CancellationToken ct = default)
         {
+            if (pageNumber < 1) pageNumber = 1;
+            if (pageSize < 1) pageSize = 10;
+
             try
             {
                 var (devices, totalCount) = await _mgr.GetAllDevicesAsync(pageNumber, pageSize, searchTerm, ct);
-
                 var result = new
                 {
                     Items = devices,
@@ -76,16 +89,12 @@ namespace MyApp.Api.Controllers
             catch (Exception ex)
             {
                 _log.LogError(ex, "GetAll devices failed");
-                return StatusCode(
-                    (int)HttpStatusCode.InternalServerError,
-                    ApiResponse<object>.Fail("An unexpected error occurred."));
+                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
             }
         }
 
-
         // GET /api/devices/{id}
         [HttpGet("{id:guid}")]
-        [Authorize]
         [AllowAnonymous]
         public async Task<IActionResult> Get(Guid id, CancellationToken ct = default)
         {
@@ -103,7 +112,6 @@ namespace MyApp.Api.Controllers
         }
 
         // PUT /api/devices/{id}
-
         [HttpPut("{id:guid}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDeviceRequest request, CancellationToken ct = default)
@@ -111,23 +119,25 @@ namespace MyApp.Api.Controllers
             if (request == null)
                 return BadRequest(ApiResponse<object>.Fail("Request body is required."));
 
-            // validate inner DTOs
-            if (!TryValidateModel(request.Device))
+            // Validate nested DTOs cleanly
+            ModelState.Clear();
+            if (!TryValidateModel(request.Device, nameof(request.Device)))
             {
-                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).Where(s => !string.IsNullOrWhiteSpace(s));
                 return BadRequest(ApiResponse<object>.Fail($"Validation failed for device: {string.Join("; ", errors)}"));
             }
 
-            if (request.Configuration != null && !TryValidateModel(request.Configuration))
+            ModelState.Clear();
+            if (request.Configuration != null && !TryValidateModel(request.Configuration, nameof(request.Configuration)))
             {
-                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage);
+                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).Where(s => !string.IsNullOrWhiteSpace(s));
                 return BadRequest(ApiResponse<object>.Fail($"Validation failed for configuration: {string.Join("; ", errors)}"));
             }
 
             try
             {
                 await _mgr.UpdateDeviceAsync(id, request.Device, request.Configuration, ct);
-                return Ok(ApiResponse<object>.Ok(null)); // consistent response format
+                return Ok(ApiResponse<object>.Ok(null));
             }
             catch (KeyNotFoundException)
             {
@@ -148,8 +158,120 @@ namespace MyApp.Api.Controllers
             }
         }
 
-        // DELETE /api/devices/{id}  -> soft delete
 
+
+
+
+
+
+
+
+
+        // POST -> create new port
+        [HttpPost("{id:guid}/ports")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> AddPort(Guid id, [FromBody] AddPortDto dto, CancellationToken ct)
+        {
+            if (dto == null) return BadRequest(new { error = "Payload is required" });
+
+            try
+            {
+                var newPortId = await _mgr.AddPortAsync(id, dto, ct);
+                // return created with location to GET single port
+                return CreatedAtAction(nameof(GetPort), new { deviceId = id, portIndex = dto.PortIndex }, new { devicePortId = newPortId });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // e.g., port already exists
+                return Conflict(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        // PUT -> update existing port
+        [HttpPut("{id:guid}/ports/{portIndex:int}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdatePort(Guid id, int portIndex, [FromBody] AddPortDto dto, CancellationToken ct)
+        {
+            if (dto == null) return BadRequest(new { error = "Payload required" });
+            try
+            {
+                await _mgr.UpdatePortAsync(id, portIndex, dto, ct);
+                return NoContent();
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // concurrency or logical errors
+                return Conflict(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+
+        // GET single port (used by CreatedAtAction)
+        [HttpGet("{deviceId:guid}/ports/{portIndex:int}")]
+        public async Task<IActionResult> GetPort(Guid deviceId, int portIndex, CancellationToken ct)
+        {
+            var port = await _mgr.GetPortAsync(deviceId, portIndex, ct);
+            if (port == null) return NotFound();
+            return Ok(port);
+        }
+
+
+
+
+
+
+
+
+
+        // POST /api/devices/{id}/configuration
+        [HttpPost("{id:guid}/configuration")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> AddConfiguration(Guid id, [FromBody] MyApp.Application.Dtos.DeviceConfigurationDto dto, CancellationToken ct = default)
+        {
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => string.IsNullOrWhiteSpace(e.ErrorMessage) ? e.Exception?.Message : e.ErrorMessage)
+                                               .Where(s => !string.IsNullOrWhiteSpace(s));
+                return BadRequest(ApiResponse<object>.Fail($"Validation failed: {string.Join("; ", errors)}"));
+            }
+
+            try
+            {
+                var cfgId = await _mgr.AddConfigurationAsync(id, dto, ct);
+                return CreatedAtAction(nameof(Get), new { id }, ApiResponse<object>.Ok(new { deviceId = id, configurationId = cfgId }));
+            }
+            catch (KeyNotFoundException knf)
+            {
+                return NotFound(ApiResponse<object>.Fail(knf.Message));
+            }
+            catch (ArgumentException aex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(aex.Message));
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Add configuration failed for device {Device}", id);
+                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
+            }
+        }
+
+        // DELETE /api/devices/{id}  -> soft delete
         [HttpDelete("{id:guid}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken ct = default)
@@ -157,7 +279,7 @@ namespace MyApp.Api.Controllers
             try
             {
                 await _mgr.DeleteDeviceAsync(id, ct);
-                return Ok(ApiResponse<object>.Ok(null)); // soft-deleted successfully
+                return Ok(ApiResponse<object>.Ok(null));
             }
             catch (KeyNotFoundException)
             {
@@ -175,7 +297,6 @@ namespace MyApp.Api.Controllers
         }
 
         // GET /api/devices/deleted
-        //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetDeletedDevices(CancellationToken ct = default)
@@ -193,7 +314,6 @@ namespace MyApp.Api.Controllers
         }
 
         // GET /api/devices/deleted/{id}
-        //[Authorize(Policy = "AdminOnly")]
         [HttpGet("deleted/{id:guid}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetDeletedDevice(Guid id, CancellationToken ct = default)
@@ -212,7 +332,6 @@ namespace MyApp.Api.Controllers
         }
 
         // POST /api/devices/{id}/restore
-
         [HttpPost("{id:guid}/restore")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> RestoreDevice(Guid id, CancellationToken ct = default)
@@ -239,7 +358,6 @@ namespace MyApp.Api.Controllers
         }
 
         // DELETE /api/devices/{id}/hard  -- permanent delete
-
         [HttpDelete("{id:guid}/hard")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> HardDeleteDevice(Guid id, CancellationToken ct = default)
@@ -263,9 +381,44 @@ namespace MyApp.Api.Controllers
                 return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
             }
         }
-    }
 
-    // Small request DTO — move to MyApp.Application.Dtos if you prefer.
+        // GET /api/devices/{deviceId}/ports
+        [HttpGet("{deviceId}/ports")]
+        public async Task<IActionResult> GetPortsByDevice(Guid deviceId, CancellationToken ct = default)
+        {
+            try
+            {
+                var ports = await _mgr.GetPortsByDeviceAsync(deviceId, ct);
+                return Ok(ApiResponse<object>.Ok(ports));
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Get ports by device failed for {DeviceId}", deviceId);
+                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
+            }
+        }
+
+        // GET /api/devices/{deviceId}/ports/{portId}
+        [HttpGet("{deviceId:guid}/ports/{portId:guid}")]
+        public async Task<IActionResult> GetPort(Guid deviceId, Guid portId, CancellationToken ct = default)
+        {
+            try
+            {
+                var ports = await _mgr.GetPortsByDeviceAsync(deviceId, ct);
+                var port = ports.FirstOrDefault(p => p.DevicePortId == portId);
+                if (port == null) return NotFound(ApiResponse<object>.Fail("Port not found."));
+                return Ok(ApiResponse<object>.Ok(port));
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Get port failed for device {DeviceId} port {PortId}", deviceId, portId);
+                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail("An unexpected error occurred."));
+            }
+        }
+
+    }
+      
+    // If you haven't already moved this DTO to the Application.Dtos project, keep it or move it.
     public class UpdateDeviceRequest
     {
         public UpdateDeviceDto Device { get; set; } = new UpdateDeviceDto();

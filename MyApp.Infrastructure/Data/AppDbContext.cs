@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MyApp.Domain.Entities;
-using System;
 
 namespace MyApp.Infrastructure.Data
 {
@@ -10,23 +9,50 @@ namespace MyApp.Infrastructure.Data
 
         public DbSet<Device> Devices => Set<Device>();
         public DbSet<DeviceConfiguration> DeviceConfigurations => Set<DeviceConfiguration>();
-        public DbSet<DevicePortSet> DevicePortSets => Set<DevicePortSet>();
         public DbSet<DevicePort> DevicePorts => Set<DevicePort>();
+        public DbSet<Register> Registers => Set<Register>();
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
-            mb.Entity<Device>().HasKey(d => d.DeviceId);
-
-            
+            // DEVICE
             mb.Entity<Device>()
-                .HasIndex(d => d.Name)
+              .HasKey(d => d.DeviceId);
+
+            // Device → DevicePortSets (keep for other functionality)
+          
+
+            // Device → DevicePorts
+            mb.Entity<Device>()
+              .HasMany(d => d.DevicePorts)
+              .WithOne(dp => dp.Device)
+              .HasForeignKey(dp => dp.DeviceId)
+              .OnDelete(DeleteBehavior.Cascade);
+
+            // DEVICE PORT
+            mb.Entity<DevicePort>()
+                .HasKey(dp => dp.DevicePortId);
+
+            // PortIndex must be unique per device
+            mb.Entity<DevicePort>()
+                .HasIndex(dp => new { dp.DeviceId, dp.PortIndex })
                 .IsUnique();
 
-           
-
+            // DevicePort → Registers
             mb.Entity<DevicePort>()
-                .HasIndex(p => new { p.DeviceId, p.PortIndex })
-                .IsUnique(false); 
+                .HasMany(dp => dp.Registers)
+                .WithOne(r => r.DevicePort)
+                .HasForeignKey(r => r.DevicePortId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // REGISTER
+            mb.Entity<Register>()
+                .HasKey(r => r.RegisterId);
+
+            // RegisterAddress must be unique per DevicePort
+            mb.Entity<Register>()
+                .HasIndex(r => new { r.DevicePortId, r.RegisterAddress })
+                .IsUnique();
 
             base.OnModelCreating(mb);
         }

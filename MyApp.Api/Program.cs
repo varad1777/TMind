@@ -136,7 +136,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 app.UseCors("AllowFrontend");
-app.MapHub<ModbusHub>("/hubs/modbus");
+app.MapHub<ModbusHub>("/api/hubs/modbus");
 
 app.UseHttpsRedirection();
 app.UseAuthentication();
