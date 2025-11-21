@@ -39,7 +39,7 @@ namespace MyApp.Application.Dtos
         [Range(0, int.MaxValue)]
         public int PortIndex { get; set; }
 
-        [MinLength(1)]
+       
         public List<RegisterDto> Registers { get; set; } = new();
 
         public bool IsHealthy { get; set; } = true;

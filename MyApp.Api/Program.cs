@@ -63,6 +63,7 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 builder.Services.AddScoped<IDeviceManager, DeviceManager>();
 builder.Services.AddHostedService<ModbusPollerHostedService>();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<RabbitMqService>();
 
 // Allow your frontend to call the API
 builder.Services.AddCors(options =>

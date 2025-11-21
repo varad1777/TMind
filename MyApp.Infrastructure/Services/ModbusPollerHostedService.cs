@@ -16,8 +16,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
+
 
 namespace MyApp.Infrastructure.Services
 {
@@ -34,6 +33,7 @@ namespace MyApp.Infrastructure.Services
         private readonly ILogger<ModbusPollerHostedService> _log;
         private readonly IConfiguration _config;
         private readonly IHubContext<ModbusHub> _hub;
+        private readonly RabbitMqService _rabbit;
 
         // Semaphore to limit concurrent TCP connections / modbus polls
         // value loaded from config or default 10
@@ -51,7 +51,7 @@ namespace MyApp.Infrastructure.Services
         public IHubContext<ModbusHub> Hub => _hub;
 
         public ModbusPollerHostedService(IServiceProvider sp, ILogger<ModbusPollerHostedService> log,
-                                         IConfiguration config, IHubContext<ModbusHub>? hub)
+                                         IConfiguration config, IHubContext<ModbusHub>? hub, RabbitMqService rabbit)
         {
             _sp = sp;
             _log = log;
@@ -65,6 +65,7 @@ namespace MyApp.Infrastructure.Services
             int concurrency = config?.GetValue<int?>("Modbus:MaxConcurrentPolls") ?? 10;
             if (concurrency <= 0) concurrency = 10;
             _semaphore = new SemaphoreSlim(concurrency, concurrency);
+            _rabbit = rabbit;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -497,7 +498,37 @@ namespace MyApp.Infrastructure.Services
 
                         if (telemetryDtos.Any())
                         {
-                            await Hub.Clients.Group(device.DeviceId.ToString()).SendAsync("TelemetryUpdate", telemetryDtos, ct);
+
+
+                            try
+                            {
+                                await Hub.Clients.Group(device.DeviceId.ToString()).SendAsync("TelemetryUpdate", telemetryDtos, ct);
+                            }
+                            catch (Exception hubEx)
+                            {
+                                _log.LogWarning(hubEx, "Failed to push telemetry to SignalR for device {Device}", device.DeviceId);
+                            }
+
+                            
+                            try
+                            {
+                                //// Option A: publish full list as a single message (batch)
+                                //await _rabbit.PublishAsync(telemetryDtos, ct);
+
+                                //Option B: publish individual telemetry items(uncomment if you prefer)
+                                 foreach (var dto in telemetryDtos)
+                                {
+                                    ct.ThrowIfCancellationRequested();
+                                    await _rabbit.PublishAsync(dto, ct);
+                                }
+                            }
+                            catch (Exception rmqEx)
+                            {
+                                _log.LogWarning(rmqEx, "Failed to publish telemetry to RabbitMQ for device {Device}", device.DeviceId);
+                            }
+
+
+
                         }
                     }
                     catch (Exception hubEx)
