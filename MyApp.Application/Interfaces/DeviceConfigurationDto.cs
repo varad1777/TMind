@@ -36,13 +36,13 @@ namespace MyApp.Application.Interfaces
         // Create and attach a configuration to a device
         Task<Guid> AddConfigurationAsync(Guid deviceId, DeviceConfigurationDto dto, CancellationToken ct = default);
 
-        Task<List<DevicePort>> GetPortsByDeviceAsync(Guid deviceId , CancellationToken ct);
+        Task<List<DeviceSlave>> GetPortsByDeviceAsync(Guid deviceId , CancellationToken ct);
 
-        Task<DevicePort?> GetPortAsync(Guid deviceId, int portIndex, CancellationToken ct = default);
+        Task<DeviceSlave?> GetPortAsync(Guid deviceId, int slaveIndex, CancellationToken ct = default);
 
 
 
-        Task UpdatePortAsync(Guid deviceId, int portIndex, AddPortDto dto, CancellationToken ct = default);
+        Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default);
         Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default);
     }
 }

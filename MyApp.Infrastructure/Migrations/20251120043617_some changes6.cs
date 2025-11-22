@@ -12,7 +12,7 @@ namespace MyApp.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "DevicePortSets");
+                name: "DeviceSlaveSets");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Unit",
@@ -57,7 +57,7 @@ namespace MyApp.Infrastructure.Migrations
                 oldMaxLength: 50);
 
             migrationBuilder.CreateTable(
-                name: "DevicePortSets",
+                name: "DeviceSlaveSets",
                 columns: table => new
                 {
                     PortSetId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -65,9 +65,9 @@ namespace MyApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DevicePortSets", x => x.PortSetId);
+                    table.PrimaryKey("PK_DeviceSlaveSets", x => x.PortSetId);
                     table.ForeignKey(
-                        name: "FK_DevicePortSets_Devices_DeviceId",
+                        name: "FK_DeviceSlaveSets_Devices_DeviceId",
                         column: x => x.DeviceId,
                         principalTable: "Devices",
                         principalColumn: "DeviceId",
@@ -75,8 +75,8 @@ namespace MyApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePortSets_DeviceId",
-                table: "DevicePortSets",
+                name: "IX_DeviceSlaveSets_DeviceId",
+                table: "DeviceSlaveSets",
                 column: "DeviceId");
         }
     }

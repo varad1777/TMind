@@ -9,7 +9,7 @@ namespace MyApp.Infrastructure.Data
 
         public DbSet<Device> Devices => Set<Device>();
         public DbSet<DeviceConfiguration> DeviceConfigurations => Set<DeviceConfiguration>();
-        public DbSet<DevicePort> DevicePorts => Set<DevicePort>();
+        public DbSet<DeviceSlave> DeviceSlaves => Set<DeviceSlave>();
         public DbSet<Register> Registers => Set<Register>();
 
         protected override void OnModelCreating(ModelBuilder mb)
@@ -18,30 +18,30 @@ namespace MyApp.Infrastructure.Data
             mb.Entity<Device>()
               .HasKey(d => d.DeviceId);
 
-            // Device → DevicePortSets (keep for other functionality)
+            // Device → DeviceSlaveSets (keep for other functionality)
           
 
-            // Device → DevicePorts
+            // Device → DeviceSlaves
             mb.Entity<Device>()
-              .HasMany(d => d.DevicePorts)
+              .HasMany(d => d.DeviceSlave)
               .WithOne(dp => dp.Device)
               .HasForeignKey(dp => dp.DeviceId)
               .OnDelete(DeleteBehavior.Cascade);
 
             // DEVICE PORT
-            mb.Entity<DevicePort>()
-                .HasKey(dp => dp.DevicePortId);
+            mb.Entity<DeviceSlave>()
+                .HasKey(dp => dp.deviceSlaveId);
 
-            // PortIndex must be unique per device
-            mb.Entity<DevicePort>()
-                .HasIndex(dp => new { dp.DeviceId, dp.PortIndex })
+            // slaveIndex must be unique per device
+            mb.Entity<DeviceSlave>()
+                .HasIndex(dp => new { dp.DeviceId, dp.slaveIndex })
                 .IsUnique();
 
-            // DevicePort → Registers
-            mb.Entity<DevicePort>()
+            // DeviceSlave → Registers
+            mb.Entity<DeviceSlave>()
                 .HasMany(dp => dp.Registers)
-                .WithOne(r => r.DevicePort)
-                .HasForeignKey(r => r.DevicePortId)
+                .WithOne(r => r.DeviceSlave)
+                .HasForeignKey(r => r.deviceSlaveId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -49,9 +49,9 @@ namespace MyApp.Infrastructure.Data
             mb.Entity<Register>()
                 .HasKey(r => r.RegisterId);
 
-            // RegisterAddress must be unique per DevicePort
+            // RegisterAddress must be unique per DeviceSlave
             mb.Entity<Register>()
-                .HasIndex(r => new { r.DevicePortId, r.RegisterAddress })
+                .HasIndex(r => new { r.deviceSlaveId, r.RegisterAddress })
                 .IsUnique();
 
             base.OnModelCreating(mb);

@@ -13,11 +13,11 @@ namespace MyApp.Infrastructure.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "CreatedAt",
-                table: "DevicePortSets");
+                table: "DeviceSlaveSets");
 
             migrationBuilder.DropColumn(
                 name: "State",
-                table: "DevicePortSets");
+                table: "DeviceSlaveSets");
 
             migrationBuilder.AddColumn<string>(
                 name: "ByteOrder",
@@ -46,14 +46,14 @@ namespace MyApp.Infrastructure.Migrations
 
             migrationBuilder.AddColumn<DateTime>(
                 name: "CreatedAt",
-                table: "DevicePortSets",
+                table: "DeviceSlaveSets",
                 type: "datetime2",
                 nullable: false,
                 defaultValue: new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified));
 
             migrationBuilder.AddColumn<string>(
                 name: "State",
-                table: "DevicePortSets",
+                table: "DeviceSlaveSets",
                 type: "nvarchar(max)",
                 nullable: false,
                 defaultValue: "");

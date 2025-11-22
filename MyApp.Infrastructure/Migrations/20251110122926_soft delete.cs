@@ -49,7 +49,7 @@ namespace MyApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "DevicePortSets",
+                name: "DeviceSlaveSets",
                 columns: table => new
                 {
                     PortSetId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -59,9 +59,9 @@ namespace MyApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DevicePortSets", x => x.PortSetId);
+                    table.PrimaryKey("PK_DeviceSlaveSets", x => x.PortSetId);
                     table.ForeignKey(
-                        name: "FK_DevicePortSets_Devices_DeviceId",
+                        name: "FK_DeviceSlaveSets_Devices_DeviceId",
                         column: x => x.DeviceId,
                         principalTable: "Devices",
                         principalColumn: "DeviceId",
@@ -69,12 +69,12 @@ namespace MyApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "DevicePorts",
+                name: "DeviceSlaves",
                 columns: table => new
                 {
-                    DevicePortId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    deviceSlaveId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     PortSetId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PortIndex = table.Column<int>(type: "int", nullable: false),
+                    slaveIndex = table.Column<int>(type: "int", nullable: false),
                     RegisterAddress = table.Column<int>(type: "int", nullable: false),
                     RegisterLength = table.Column<int>(type: "int", nullable: false),
                     DataType = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -85,28 +85,28 @@ namespace MyApp.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DevicePorts", x => x.DevicePortId);
+                    table.PrimaryKey("PK_DeviceSlaves", x => x.deviceSlaveId);
                     table.ForeignKey(
-                        name: "FK_DevicePorts_DevicePortSets_PortSetId",
+                        name: "FK_DeviceSlaves_DeviceSlaveSets_PortSetId",
                         column: x => x.PortSetId,
-                        principalTable: "DevicePortSets",
+                        principalTable: "DeviceSlaveSets",
                         principalColumn: "PortSetId",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePorts_DeviceId_PortIndex",
-                table: "DevicePorts",
-                columns: new[] { "DeviceId", "PortIndex" });
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves",
+                columns: new[] { "DeviceId", "slaveIndex" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePorts_PortSetId",
-                table: "DevicePorts",
+                name: "IX_DeviceSlaves_PortSetId",
+                table: "DeviceSlaves",
                 column: "PortSetId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePortSets_DeviceId",
-                table: "DevicePortSets",
+                name: "IX_DeviceSlaveSets_DeviceId",
+                table: "DeviceSlaveSets",
                 column: "DeviceId");
 
             migrationBuilder.CreateIndex(
@@ -119,10 +119,10 @@ namespace MyApp.Infrastructure.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "DevicePorts");
+                name: "DeviceSlaves");
 
             migrationBuilder.DropTable(
-                name: "DevicePortSets");
+                name: "DeviceSlaveSets");
 
             migrationBuilder.DropTable(
                 name: "Devices");

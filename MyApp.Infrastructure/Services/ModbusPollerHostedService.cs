@@ -16,7 +16,8 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MyApp.Infrastructure.Services
 {
@@ -215,8 +216,8 @@ namespace MyApp.Infrastructure.Services
 
             // read settings strictly from ProtocolSettingsJson (no device.Host/device.Port fallback)
             var ip = TryGetString(settings, "IpAddress");
-            var port = TryGetInt(settings, "Port", 5020); // default Modbus port fallback
-            var slaveId = TryGetInt(settings, "SlaveId", 1);
+            var port = TryGetInt(settings, "Port", 502); // default Modbus TCP port is 502
+            var slaveIdFromConfig = TryGetInt(settings, "SlaveId", 1); // kept as fallback if no DeviceSlave entry
             var endian = TryGetString(settings, "Endian") ?? "Big";
             var pollIntervalMs = TryGetInt(settings, "PollIntervalMs", cfg.PollIntervalMs > 0 ? cfg.PollIntervalMs : 1000);
             var addressStyleCfg = TryGetString(settings, "AddressStyle");
@@ -227,16 +228,16 @@ namespace MyApp.Infrastructure.Services
                 return pollIntervalMs;
             }
 
-            // Load device ports and their registers. Only include ports that belong to the device
+            // Load device slaves and their registers. Only include slaves that belong to the device
             // and are not soft-deleted; register-level health is used to filter which registers to poll.
-            var ports = await db.DevicePorts
-                .Include(dp => dp.Registers)
-                .Where(p => p.DeviceId == device.DeviceId && !device.IsDeleted && p.IsHealthy)
+            var slaves = await db.DeviceSlaves
+                .Include(ds => ds.Registers)
+                .Where(s => s.DeviceId == device.DeviceId && s.IsHealthy)
                 .ToListAsync(ct);
 
-            // Flatten registers from ports; skip ports without any healthy registers
-            var activeRegisters = ports
-                .SelectMany(dp => dp.Registers.Where(r => r.IsHealthy).Select(r => new { DevicePort = dp, Register = r }))
+            // Flatten registers from slaves; skip slaves without any healthy registers
+            var activeRegisters = slaves
+                .SelectMany(ds => ds.Registers.Where(r => r.IsHealthy).Select(r => new { DeviceSlave = ds, Register = r }))
                 .ToList();
 
             if (!activeRegisters.Any())
@@ -252,7 +253,7 @@ namespace MyApp.Infrastructure.Services
             if (!string.IsNullOrEmpty(addressStyleCfg))
                 dbUses40001 = string.Equals(addressStyleCfg, "40001", StringComparison.OrdinalIgnoreCase);
             else
-                dbUses40001 = ports.Any(p => p.Registers != null && p.Registers.Any(r => r.RegisterAddress >= 40001));
+                dbUses40001 = slaves.Any(s => s.Registers != null && s.Registers.Any(r => r.RegisterAddress >= 40001));
 
             int ToProto(int dbAddr)
             {
@@ -262,10 +263,10 @@ namespace MyApp.Infrastructure.Services
                 return dbAddr;
             }
 
-            // Map registers to protocol addresses and lengths
+            // Map registers to protocol addresses and lengths (preserve link to DeviceSlave)
             var protoPorts = activeRegisters.Select(x => new
             {
-                DevicePort = x.DevicePort,
+                DeviceSlave = x.DeviceSlave,
                 Register = x.Register,
                 ProtoAddr = ToProto(x.Register.RegisterAddress), // zero-based address
                 Length = Math.Max(1, x.Register.RegisterLength)
@@ -277,38 +278,6 @@ namespace MyApp.Infrastructure.Services
             {
                 _log.LogDebug("No ports after normalization for device {Device}", device.DeviceId);
                 return pollIntervalMs;
-            }
-
-            // Build contiguous ranges to minimize Modbus reads (each up to 125 registers)
-            var ranges = new List<(int Start, int Count, List<dynamic> Items)>();
-            int idx = 0;
-            while (idx < protoPorts.Count)
-            {
-                int start = protoPorts[idx].ProtoAddr;
-                int end = start + protoPorts[idx].Length - 1;
-                var items = new List<dynamic> { protoPorts[idx] };
-                idx++;
-
-                while (idx < protoPorts.Count)
-                {
-                    var next = protoPorts[idx];
-                    if (next.ProtoAddr <= end + 1)
-                    {
-                        end = Math.Max(end, next.ProtoAddr + next.Length - 1);
-                        items.Add(next);
-                        idx++;
-                    }
-                    else break;
-
-                    if (end - start + 1 >= ModbusMaxRegistersPerRead)
-                    {
-                        end = start + ModbusMaxRegistersPerRead - 1;
-                        break;
-                    }
-                }
-
-                int count = Math.Min(ModbusMaxRegistersPerRead, end - start + 1);
-                ranges.Add((start, count, items));
             }
 
             // Acquire semaphore to limit concurrent network connections/polls.
@@ -327,155 +296,201 @@ namespace MyApp.Infrastructure.Services
                 // Using in-repo ModbusTcpClient helper to avoid NModbus4 dependency
 
                 var now = DateTime.UtcNow;
-                var allReads = new List<(Guid DevicePortId, int PortIndex, string SignalType, double Value, string Unit, int RegisterAddress)>();
+                // tuple: (deviceSlaveId, slaveIndex, SignalType, Value, Unit, RegisterAddress)
+                var allReads = new List<(Guid deviceSlaveId, int slaveIndex, string SignalType, double Value, string Unit, int RegisterAddress)>();
 
-                // Iterate ranges and read registers
-                foreach (var r in ranges)
+                // --- Group protoPorts by slaveIndex (unit id) so we never mix different slaves in one request ---
+                var protoGroups = protoPorts
+                    .GroupBy(x => ((DeviceSlave)x.DeviceSlave).slaveIndex)
+                    .ToDictionary(g => g.Key, g => g.OrderBy(p => p.ProtoAddr).ToList());
+
+                // For each slave (unit id) build contiguous ranges and read separately
+                foreach (var kv in protoGroups)
                 {
-                    if (r.Start < 0 || r.Start > ushort.MaxValue) { _log.LogWarning("Skipping invalid start {Start}", r.Start); continue; }
-                    if (r.Count <= 0) continue;
+                    int unitId = kv.Key; // the slaveIndex/unit id to use for Modbus requests
+                    var itemsForSlave = kv.Value; // ordered by ProtoAddr
 
-                    StringBuilder sb = new();
-
-                    // Range header (buffered output)
-                    sb.AppendLine();
-                    sb.AppendLine(new string('=', 80));
-                    sb.AppendLine($"Device: {device.DeviceId} | Ip={ip}:{port} | RangeStart={r.Start} Count={r.Count}");
-                    sb.AppendLine(new string('-', 80));
-
-                    // included ports for this range
-                    sb.AppendLine("Included registers:");
-                    foreach (var ent in r.Items)
+                    // Build ranges for this slave alone (each up to ModbusMaxRegistersPerRead)
+                    var slaveRanges = new List<(int Start, int Count, List<dynamic> Items)>();
+                    int j = 0;
+                    while (j < itemsForSlave.Count)
                     {
-                        var dp = (DevicePort)ent.DevicePort;
-                        var reg = (Register)ent.Register;
-                        sb.AppendLine($"  - PortIndex={dp.PortIndex}, DBAddr={reg.RegisterAddress}, Length={ent.Length}, DataType={reg.DataType}");
-                    }
-                    sb.AppendLine();
+                        int start = itemsForSlave[j].ProtoAddr;
+                        int end = start + itemsForSlave[j].Length - 1;
+                        var items = new List<dynamic> { itemsForSlave[j] };
+                        j++;
 
-                    try
-                    {
-                        ushort[] regs = await ModbusTcpClient.ReadHoldingRegistersAsync(tcp, (byte)slaveId, (ushort)r.Start, (ushort)r.Count, ct);
-                        sb.AppendLine($"Read {regs.Length} registers from slave={slaveId} start={r.Start}");
-                        sb.AppendLine(new string('-', 80));
-
-                        // Reset failure counts for registers in this successful read
-                        foreach (var ent in r.Items)
+                        while (j < itemsForSlave.Count)
                         {
-                            var reg = (Register)ent.Register;
-                            _failureCounts.TryRemove(reg.RegisterId, out _);
+                            var next = itemsForSlave[j];
+                            if (next.ProtoAddr <= end + 1)
+                            {
+                                end = Math.Max(end, next.ProtoAddr + next.Length - 1);
+                                items.Add(next);
+                                j++;
+                            }
+                            else break;
+
+                            if (end - start + 1 >= ModbusMaxRegistersPerRead)
+                            {
+                                end = start + ModbusMaxRegistersPerRead - 1;
+                                break;
+                            }
                         }
 
-                        // Table header
-                        sb.AppendLine($"{"Time (UTC)".PadRight(30)} | {"Port".PadRight(6)} | {"Register".PadRight(8)} | {"Value".PadRight(15)} | {"Unit".PadRight(8)}");
+                        int count = Math.Min(ModbusMaxRegistersPerRead, end - start + 1);
+                        slaveRanges.Add((start, count, items));
+                    }
+
+                    // Now perform reads for each range for THIS unitId
+                    foreach (var r in slaveRanges)
+                    {
+                        if (r.Start < 0 || r.Start > ushort.MaxValue) { _log.LogWarning("Skipping invalid start {Start}", r.Start); continue; }
+                        if (r.Count <= 0) continue;
+
+                        StringBuilder sb = new();
+
+                        // Range header (buffered output)
+                        sb.AppendLine();
+                        sb.AppendLine(new string('=', 80));
+                        sb.AppendLine($"Device: {device.DeviceId} | Ip={ip}:{port} | UnitId={unitId} | RangeStart={r.Start} Count={r.Count}");
                         sb.AppendLine(new string('-', 80));
 
-                        // Decode each port in this range
-                        foreach (var entry in r.Items)
+                        // included registers for this range
+                        sb.AppendLine("Included registers:");
+                        foreach (var ent in r.Items)
                         {
-                            var dp = (DevicePort)entry.DevicePort;
-                            var reg = (Register)entry.Register;
-                            int protoAddr = entry.ProtoAddr;
-                            int relativeIndex = protoAddr - r.Start;
+                            var ds = (DeviceSlave)ent.DeviceSlave;
+                            var reg = (Register)ent.Register;
+                            sb.AppendLine($"  - slaveIndex={ds.slaveIndex}, DBAddr={reg.RegisterAddress}, Length={ent.Length}, DataType={reg.DataType}");
+                        }
+                        sb.AppendLine();
 
-                            if (relativeIndex < 0 || relativeIndex + (entry.Length - 1) >= regs.Length)
+                        try
+                        {
+                            // IMPORTANT: use the slave's unit id here, not the single device-level slaveId
+                            ushort[] regs = await ModbusTcpClient.ReadHoldingRegistersAsync(tcp, (byte)unitId, (ushort)r.Start, (ushort)r.Count, ct);
+                            sb.AppendLine($"Read {regs.Length} registers from unit={unitId} start={r.Start}");
+                            sb.AppendLine(new string('-', 80));
+
+                            // Reset failure counts for registers in this successful read
+                            foreach (var ent in r.Items)
                             {
-                                sb.AppendLine($"Index out-of-range for port {dp.PortIndex} (proto {protoAddr})");
-                                continue;
+                                var reg = (Register)ent.Register;
+                                _failureCounts.TryRemove(reg.RegisterId, out _);
                             }
 
-                            double finalValue = 0.0;
-                            try
+                            // Table header
+                            sb.AppendLine($"{"Time (UTC)".PadRight(30)} | {"Unit".PadRight(6)} | {"Register".PadRight(8)} | {"Value".PadRight(15)} | {"Unit".PadRight(8)}");
+                            sb.AppendLine(new string('-', 80));
+
+                            // Decode each register in this range (same logic you already have)
+                            foreach (var entry in r.Items)
                             {
-                                if (string.Equals(reg.DataType, "float32", StringComparison.OrdinalIgnoreCase))
+                                var ds = (DeviceSlave)entry.DeviceSlave;
+                                var reg = (Register)entry.Register;
+                                int protoAddr = entry.ProtoAddr;
+                                int relativeIndex = protoAddr - r.Start;
+
+                                if (relativeIndex < 0 || relativeIndex + (entry.Length - 1) >= regs.Length)
                                 {
-                                    if (relativeIndex + 1 >= regs.Length)
+                                    sb.AppendLine($"Index out-of-range for slave {ds.slaveIndex} (proto {protoAddr})");
+                                    continue;
+                                }
+
+                                double finalValue = 0.0;
+                                try
+                                {
+                                    if (string.Equals(reg.DataType, "float32", StringComparison.OrdinalIgnoreCase))
                                     {
-                                        sb.AppendLine($"Not enough regs to decode float32 for port {dp.PortIndex}");
-                                        continue;
-                                    }
+                                        if (relativeIndex + 1 >= regs.Length)
+                                        {
+                                            sb.AppendLine($"Not enough regs to decode float32 for slave {ds.slaveIndex}");
+                                            continue;
+                                        }
 
-                                    ushort r1 = regs[relativeIndex];
-                                    ushort r2 = regs[relativeIndex + 1];
+                                        ushort r1 = regs[relativeIndex];
+                                        ushort r2 = regs[relativeIndex + 1];
 
-                                    byte[] bytes = new byte[4] { (byte)(r1 >> 8), (byte)(r1 & 0xFF), (byte)(r2 >> 8), (byte)(r2 & 0xFF) };
-                                    if (string.Equals(endian, "Little", StringComparison.OrdinalIgnoreCase)) Array.Reverse(bytes);
+                                        byte[] bytes = new byte[4] { (byte)(r1 >> 8), (byte)(r1 & 0xFF), (byte)(r2 >> 8), (byte)(r2 & 0xFF) };
+                                        if (string.Equals(endian, "Little", StringComparison.OrdinalIgnoreCase)) Array.Reverse(bytes);
 
-                                    float raw = BitConverter.ToSingle(bytes, 0);
+                                        float raw = BitConverter.ToSingle(bytes, 0);
 
-                                    if (r2 == 0 && Math.Abs(raw) < 1e-3)
-                                    {
-                                        double scaledFallback = r1;
-                                        finalValue = scaledFallback * reg.Scale;
-                                        sb.AppendLine($"Float32 fallback for port {dp.PortIndex}: r1={r1}, r2={r2}, scaled={scaledFallback}");
+                                        if (r2 == 0 && Math.Abs(raw) < 1e-3)
+                                        {
+                                            double scaledFallback = r1;
+                                            finalValue = scaledFallback * reg.Scale;
+                                            sb.AppendLine($"Float32 fallback for slave {ds.slaveIndex}: r1={r1}, r2={r2}, scaled={scaledFallback}");
+                                        }
+                                        else
+                                        {
+                                            finalValue = raw * reg.Scale;
+                                        }
                                     }
                                     else
                                     {
-                                        finalValue = raw * reg.Scale;
+                                        finalValue = regs[relativeIndex] * reg.Scale;
                                     }
+
+                                    // add to telemetry buffer
+                                    allReads.Add((ds.deviceSlaveId, ds.slaveIndex, reg.DataType ?? $"Port{ds.slaveIndex}", finalValue, reg.Unit ?? string.Empty, reg.RegisterAddress));
+
+                                    // append row to buffer
+                                    sb.AppendLine($"{now:O.PadRight(30)} | {ds.slaveIndex.ToString().PadRight(6)} | {reg.RegisterAddress.ToString().PadRight(8)} | {finalValue.ToString("G6").PadRight(15)} | {(reg.Unit ?? string.Empty).PadRight(8)}");
                                 }
-                                else
+                                catch (Exception decodeEx)
                                 {
-                                    finalValue = regs[relativeIndex] * reg.Scale;
+                                    sb.AppendLine($"Decode failed for slave {ds.slaveIndex}: {decodeEx.Message}");
+                                }
+                            }
+
+                            sb.AppendLine(new string('=', 80));
+
+                            // Print the whole buffer atomically to avoid mixing with other device outputs
+                            lock (_consoleLock)
+                            {
+                                Console.Write(sb.ToString());
+                            }
+                        }
+                        catch (Modbus.SlaveException sex)
+                        {
+                            _log.LogError(sex, "Modbus SlaveException device {Device} unit={UnitId} start={Start} count={Count}", device.DeviceId, unitId, r.Start, r.Count);
+
+                            var regsToConsider = r.Items.Select(it => ((Register)it.Register).RegisterId).ToList();
+                            try
+                            {
+                                var dbRegs = await db.Registers.Where(reg => regsToConsider.Contains(reg.RegisterId)).ToListAsync(ct);
+                                var toMark = new List<Guid>();
+
+                                foreach (var reg in dbRegs)
+                                {
+                                    var id = reg.RegisterId;
+                                    int newCount = _failureCounts.AddOrUpdate(id, 1, (_, old) => old + 1);
+                                    _log.LogWarning("Failure count for register {RegisterAddress} (Id={Id}) = {Count}", reg.RegisterAddress, id, newCount);
+
+                                    if (newCount >= _failThreshold && reg.IsHealthy) toMark.Add(id);
                                 }
 
-                                allReads.Add((dp.DevicePortId, dp.PortIndex, reg.DataType ?? $"Port{dp.PortIndex}", finalValue, reg.Unit ?? string.Empty, reg.RegisterAddress));
-
-                                // append row to buffer
-                                sb.AppendLine($"{now:O.PadRight(30)} | {dp.PortIndex.ToString().PadRight(6)} | {reg.RegisterAddress.ToString().PadRight(8)} | {finalValue.ToString("G6").PadRight(15)} | {(reg.Unit ?? string.Empty).PadRight(8)}");
+                                if (toMark.Any())
+                                {
+                                    var markRegs = await db.Registers.Where(reg => toMark.Contains(reg.RegisterId)).ToListAsync(ct);
+                                    foreach (var mr in markRegs) mr.IsHealthy = false;
+                                    await db.SaveChangesAsync(ct);
+                                    _log.LogWarning("Marked {Count} registers unhealthy for device {Device}", markRegs.Count, device.DeviceId);
+                                }
                             }
-                            catch (Exception decodeEx)
+                            catch (Exception markEx)
                             {
-                                sb.AppendLine($"Decode failed for port {dp.PortIndex}: {decodeEx.Message}");
+                                _log.LogError(markEx, "Failed marking unhealthy registers for device {Device}", device.DeviceId);
                             }
                         }
-
-                        sb.AppendLine(new string('=', 80));
-
-                        // Print the whole buffer atomically to avoid mixing with other device outputs
-                        lock (_consoleLock)
+                        catch (Exception ex)
                         {
-                            Console.Write(sb.ToString());
+                            _log.LogError(ex, "Error reading device {Device} unit={UnitId} start={Start} count={Count}", device.DeviceId, unitId, r.Start, r.Count);
                         }
-                    }
-                    catch (Modbus.SlaveException sex)
-                    {
-                        // Preserve original behavior: log and mark failure counts; potentially mark ports unhealthy
-                        _log.LogError(sex, "Modbus SlaveException device {Device} start={Start} count={Count}", device.DeviceId, r.Start, r.Count);
-
-                        var regsToConsider = r.Items.Select(it => ((Register)it.Register).RegisterId).ToList();
-                        try
-                        {
-                            var dbRegs = await db.Registers.Where(reg => regsToConsider.Contains(reg.RegisterId)).ToListAsync(ct);
-                            var toMark = new List<Guid>();
-
-                            foreach (var reg in dbRegs)
-                            {
-                                var id = reg.RegisterId;
-                                int newCount = _failureCounts.AddOrUpdate(id, 1, (_, old) => old + 1);
-                                _log.LogWarning("Failure count for register {RegisterAddress} (Id={Id}) = {Count}", reg.RegisterAddress, id, newCount);
-
-                                if (newCount >= _failThreshold && reg.IsHealthy) toMark.Add(id);
-                            }
-
-                            if (toMark.Any())
-                            {
-                                var markRegs = await db.Registers.Where(reg => toMark.Contains(reg.RegisterId)).ToListAsync(ct);
-                                foreach (var mr in markRegs) mr.IsHealthy = false;
-                                await db.SaveChangesAsync(ct);
-                                _log.LogWarning("Marked {Count} registers unhealthy for device {Device}", markRegs.Count, device.DeviceId);
-                            }
-                        }
-                        catch (Exception markEx)
-                        {
-                            _log.LogError(markEx, "Failed marking unhealthy registers for device {Device}", device.DeviceId);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.LogError(ex, "Error reading device {Device} start={Start} count={Count}", device.DeviceId, r.Start, r.Count);
-                    }
-                } // foreach ranges
+                    } // foreach slaveRanges
+                } // foreach protoGroups
 
                 // Prepare telemetry DTOs and push them to SignalR (no DB save)
                 if (allReads.Count > 0)
@@ -484,10 +499,11 @@ namespace MyApp.Infrastructure.Services
                     {
                         var telemetryDtos = allReads.Select(r =>
                         {
+                            // map to your TelemetryDto shape - keep DevicePortId param but pass deviceSlaveId for compatibility
                             return new TelemetryDto(
                                 DeviceId: device.DeviceId,
-                                DevicePortId: r.DevicePortId,
-                                PortIndex: r.PortIndex,
+                                deviceSlaveId: r.deviceSlaveId,
+                                slaveIndex: r.slaveIndex,
                                 RegisterAddress: r.RegisterAddress,
                                 SignalType: r.SignalType,
                                 Value: r.Value,
@@ -498,8 +514,6 @@ namespace MyApp.Infrastructure.Services
 
                         if (telemetryDtos.Any())
                         {
-
-
                             try
                             {
                                 await Hub.Clients.Group(device.DeviceId.ToString()).SendAsync("TelemetryUpdate", telemetryDtos, ct);
@@ -509,14 +523,10 @@ namespace MyApp.Infrastructure.Services
                                 _log.LogWarning(hubEx, "Failed to push telemetry to SignalR for device {Device}", device.DeviceId);
                             }
 
-                            
                             try
                             {
-                                //// Option A: publish full list as a single message (batch)
-                                //await _rabbit.PublishAsync(telemetryDtos, ct);
-
-                                //Option B: publish individual telemetry items(uncomment if you prefer)
-                                 foreach (var dto in telemetryDtos)
+                                // Option B: publish individual telemetry items
+                                foreach (var dto in telemetryDtos)
                                 {
                                     ct.ThrowIfCancellationRequested();
                                     await _rabbit.PublishAsync(dto, ct);
@@ -526,14 +536,11 @@ namespace MyApp.Infrastructure.Services
                             {
                                 _log.LogWarning(rmqEx, "Failed to publish telemetry to RabbitMQ for device {Device}", device.DeviceId);
                             }
-
-
-
                         }
                     }
                     catch (Exception hubEx)
                     {
-                        _log.LogWarning(hubEx, "Failed to push telemetry to SignalR for device {Device}", device.DeviceId);
+                        _log.LogWarning(hubEx, "Failed to prepare telemetry for device {Device}", device.DeviceId);
                     }
 
                     _log.LogDebug("Prepared {Count} telemetry rows for device {Device}", allReads.Count, device.DeviceId);

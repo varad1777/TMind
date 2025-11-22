@@ -12,28 +12,28 @@ namespace MyApp.Infrastructure.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropIndex(
-                name: "IX_DevicePorts_DeviceId_PortIndex",
-                table: "DevicePorts");
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves");
 
             migrationBuilder.DropColumn(
                 name: "DataType",
-                table: "DevicePorts");
+                table: "DeviceSlaves");
 
             migrationBuilder.DropColumn(
                 name: "RegisterAddress",
-                table: "DevicePorts");
+                table: "DeviceSlaves");
 
             migrationBuilder.DropColumn(
                 name: "RegisterLength",
-                table: "DevicePorts");
+                table: "DeviceSlaves");
 
             migrationBuilder.DropColumn(
                 name: "Scale",
-                table: "DevicePorts");
+                table: "DeviceSlaves");
 
             migrationBuilder.DropColumn(
                 name: "Unit",
-                table: "DevicePorts");
+                table: "DeviceSlaves");
 
             migrationBuilder.CreateTable(
                 name: "Registers",
@@ -46,29 +46,29 @@ namespace MyApp.Infrastructure.Migrations
                     Scale = table.Column<double>(type: "float", nullable: false),
                     Unit = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     IsHealthy = table.Column<bool>(type: "bit", nullable: false),
-                    DevicePortId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    deviceSlaveId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Registers", x => x.RegisterId);
                     table.ForeignKey(
-                        name: "FK_Registers_DevicePorts_DevicePortId",
-                        column: x => x.DevicePortId,
-                        principalTable: "DevicePorts",
-                        principalColumn: "DevicePortId",
+                        name: "FK_Registers_DeviceSlaves_deviceSlaveId",
+                        column: x => x.deviceSlaveId,
+                        principalTable: "DeviceSlaves",
+                        principalColumn: "deviceSlaveId",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePorts_DeviceId_PortIndex",
-                table: "DevicePorts",
-                columns: new[] { "DeviceId", "PortIndex" },
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves",
+                columns: new[] { "DeviceId", "slaveIndex" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Registers_DevicePortId_RegisterAddress",
+                name: "IX_Registers_deviceSlaveId_RegisterAddress",
                 table: "Registers",
-                columns: new[] { "DevicePortId", "RegisterAddress" },
+                columns: new[] { "deviceSlaveId", "RegisterAddress" },
                 unique: true);
         }
 
@@ -79,47 +79,47 @@ namespace MyApp.Infrastructure.Migrations
                 name: "Registers");
 
             migrationBuilder.DropIndex(
-                name: "IX_DevicePorts_DeviceId_PortIndex",
-                table: "DevicePorts");
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves");
 
             migrationBuilder.AddColumn<string>(
                 name: "DataType",
-                table: "DevicePorts",
+                table: "DeviceSlaves",
                 type: "nvarchar(max)",
                 nullable: false,
                 defaultValue: "");
 
             migrationBuilder.AddColumn<int>(
                 name: "RegisterAddress",
-                table: "DevicePorts",
+                table: "DeviceSlaves",
                 type: "int",
                 nullable: false,
                 defaultValue: 0);
 
             migrationBuilder.AddColumn<int>(
                 name: "RegisterLength",
-                table: "DevicePorts",
+                table: "DeviceSlaves",
                 type: "int",
                 nullable: false,
                 defaultValue: 0);
 
             migrationBuilder.AddColumn<double>(
                 name: "Scale",
-                table: "DevicePorts",
+                table: "DeviceSlaves",
                 type: "float",
                 nullable: false,
                 defaultValue: 0.0);
 
             migrationBuilder.AddColumn<string>(
                 name: "Unit",
-                table: "DevicePorts",
+                table: "DeviceSlaves",
                 type: "nvarchar(max)",
                 nullable: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_DevicePorts_DeviceId_PortIndex",
-                table: "DevicePorts",
-                columns: new[] { "DeviceId", "PortIndex" });
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves",
+                columns: new[] { "DeviceId", "slaveIndex" });
         }
     }
 }

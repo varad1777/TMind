@@ -13,15 +13,15 @@ namespace MyApp.Application.Dtos
         [StringLength(255, ErrorMessage = "Description cannot exceed 255 characters.")]
         public string? Description { get; set; }
 
-        public List<DevicePortDto>? Ports { get; set; }
+        public List<DeviceSlaveDto>? Ports { get; set; }
 
         public DeviceConfigurationDto? Configuration { get; set; }
     }
 
-    public class DevicePortDto
+    public class DeviceSlaveDto
     {
-        [Range(0, int.MaxValue, ErrorMessage = "PortIndex must be a non-negative number.")]
-        public int PortIndex { get; set; }
+        [Range(0, int.MaxValue, ErrorMessage = "slaveIndex must be a non-negative number.")]
+        public int slaveIndex { get; set; }
 
         [Range(0, 65535, ErrorMessage = "RegisterAddress must be between 0 and 65535.")]
         public int RegisterAddress { get; set; }

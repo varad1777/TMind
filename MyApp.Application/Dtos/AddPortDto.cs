@@ -37,7 +37,7 @@ namespace MyApp.Application.Dtos
     public class AddPortDto
     {
         [Range(0, int.MaxValue)]
-        public int PortIndex { get; set; }
+        public int slaveIndex { get; set; }
 
        
         public List<RegisterDto> Registers { get; set; } = new();

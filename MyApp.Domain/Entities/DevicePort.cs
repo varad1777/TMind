@@ -5,16 +5,16 @@ using System.Text.Json.Serialization;
 
 namespace MyApp.Domain.Entities
 {
-    public class DevicePort
+    public class DeviceSlave
     {
         [Key]
-        public Guid DevicePortId { get; set; } = Guid.NewGuid();
+        public Guid deviceSlaveId { get; set; } = Guid.NewGuid();
 
         public Guid DeviceId { get; set; }
         public Device Device { get; set; } = null!;
 
         [Required]
-        public int PortIndex { get; set; }   // logical index
+        public int slaveIndex { get; set; }   // logical index
 
         public List<Register> Registers { get; set; } = new List<Register>();
 
@@ -48,15 +48,15 @@ namespace MyApp.Domain.Entities
 
         public bool WordSwap { get; set; } = false;
 
-        public Guid DevicePortId { get; set; }
+        public Guid deviceSlaveId { get; set; }
         [JsonIgnore]
-        public DevicePort DevicePort { get; set; } = null!;
+        public DeviceSlave DeviceSlave { get; set; } = null!;
 
     }
 
 
 
-    //public class DevicePortSet
+    //public class DeviceSlaveSet
     //{
     //    [Key]
     //    public Guid PortSetId { get; set; } = Guid.NewGuid();

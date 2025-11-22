@@ -1,4 +1,9 @@
 # simulator_with_register_control.py
+# Updated: supports up to 247 slave unit ids (1..247).
+# Only slaves 1 and 2 are actively simulated and updated. All other unit ids return zeros
+# for their registers (Modbus reads will return zeros). Any API operations that modify
+# runtime state (base_highs, params, spikes, stop/start) are only allowed for unit 1 and 2.
+
 import time
 import random
 import math
@@ -13,10 +18,17 @@ from flask_cors import CORS
 initial_regs_slave1 = [2200,0, 1500,0, 3000,0, 500,0, 20,0, 1000,0, 1800,0, 250,0]
 initial_regs_slave2 = [2100,0, 1400,0, 2800,0, 490,0, 30,0, 900,0, 1600,0, 300,0]
 
-# ---------- Build contexts ----------
-store1 = ModbusSlaveContext(hr=ModbusSequentialDataBlock(0, initial_regs_slave1))
-store2 = ModbusSlaveContext(hr=ModbusSequentialDataBlock(0, initial_regs_slave2))
-stores = {1: store1, 2: store2}
+# ---------- Build contexts for units 1..247 ----------
+# For 1 and 2 use the provided initial values; for others use zeros (16 registers -> 8 pairs)
+stores = {}
+for unit in range(1, 248):
+    if unit == 1:
+        stores[unit] = ModbusSlaveContext(hr=ModbusSequentialDataBlock(0, initial_regs_slave1))
+    elif unit == 2:
+        stores[unit] = ModbusSlaveContext(hr=ModbusSequentialDataBlock(0, initial_regs_slave2))
+    else:
+        stores[unit] = ModbusSlaveContext(hr=ModbusSequentialDataBlock(0, [0]*16))
+
 context = ModbusServerContext(slaves=stores, single=False)
 
 # ---------- Identity ----------
@@ -33,12 +45,13 @@ _sim_state = {
     "paused": False,
     "update_interval": 0.005,
     "print_interval": 0.25,
-    # map unit id -> base highs list (length 8)
+    # map unit id -> base highs list (length 8) - only meaningful for unit 1 and 2
     "base_highs": {
         1: [initial_regs_slave1[i] for i in range(0, len(initial_regs_slave1), 2)],
         2: [initial_regs_slave2[i] for i in range(0, len(initial_regs_slave2), 2)]
     },
     # per-unit set of stopped register indexes (0..7). If stopped, that signal's high word is set to 0 and not updated.
+    # only meaningful for unit 1 and 2
     "stopped_indices": {
         1: set(),
         2: set()
@@ -62,6 +75,7 @@ _sim_state = {
 
 # ---------- Simulator functions ----------
 def simulate_slave(unit_id, update_interval):
+    """Only run this for unit 1 and 2. Other units are static zeros and do not need simulation."""
     t0 = time.time()
     i = 0
     while True:
@@ -92,17 +106,18 @@ def simulate_slave(unit_id, update_interval):
                     # apply spikes (additive). There can be multiple spikes; sum magnitudes or apply types.
                     for sp in active_spikes:
                         if sp["idx"] == idx:
-                            # simple additive spike; magnitude is integer to add to raw high
                             new_high = max(0, new_high + int(sp.get("magnitude", 0)))
 
                 new_regs.append(new_high)
                 new_regs.append(0)
             try:
+                # set values into context for this unit
                 context[unit_id].setValues(3, 0, new_regs)
             except Exception as ex:
                 print(f"Simulator: failed to set values for unit {unit_id}: {ex}")
         i += 1
         time.sleep(update_interval)
+
 
 def pretty_monitor(print_interval):
     time.sleep(0.05)
@@ -118,7 +133,8 @@ def pretty_monitor(print_interval):
     ]
     while True:
         now = time.time()
-        for unit_id in stores.keys():
+        # iterate only over created stores (1..247)
+        for unit_id in sorted(stores.keys()):
             try:
                 regs = context[unit_id].getValues(3, 0, count=16)
             except Exception:
@@ -167,7 +183,7 @@ def api_status():
         "spikes": [s for s in _sim_state["spikes"] if s["end_time"] > time.time()]
     }
     units = {}
-    for unit in stores.keys():
+    for unit in sorted(stores.keys()):
         try:
             regs = context[unit].getValues(3, 0, count=16)
         except Exception:
@@ -178,15 +194,21 @@ def api_status():
 
 @app.route("/api/units/<int:unit_id>/regs", methods=["GET"])
 def api_get_regs(unit_id):
+    # Always return registers for requested unit. For units >2 these are zeroed.
+    if unit_id not in stores:
+        return jsonify({"unit": unit_id, "regs": [0]*16, "stopped": []})
     try:
         regs = context[unit_id].getValues(3, 0, count=16)
     except Exception:
-        regs = []
+        regs = [0]*16
     stopped = sorted(list(_sim_state["stopped_indices"].get(unit_id, set())))
     return jsonify({"unit": unit_id, "regs": regs, "stopped": stopped})
 
 @app.route("/api/units/<int:unit_id>/stop/<int:idx>", methods=["POST"])
 def api_stop_register(unit_id, idx):
+    # Only allow stop/start for simulated units (1 and 2). For other units, respond with error.
+    if unit_id not in (1, 2):
+        return jsonify({"error": "unit not active for modifications; read-only zeros"}), 400
     if unit_id not in _sim_state["stopped_indices"]:
         _sim_state["stopped_indices"][unit_id] = set()
     _sim_state["stopped_indices"][unit_id].add(idx)
@@ -200,12 +222,17 @@ def api_stop_register(unit_id, idx):
 
 @app.route("/api/units/<int:unit_id>/start/<int:idx>", methods=["POST"])
 def api_start_register(unit_id, idx):
+    if unit_id not in (1, 2):
+        return jsonify({"error": "unit not active for modifications; read-only zeros"}), 400
     if unit_id in _sim_state["stopped_indices"]:
         _sim_state["stopped_indices"][unit_id].discard(idx)
     return jsonify({"ok": True, "unit": unit_id, "started_index": idx})
 
 @app.route("/api/units/<int:unit_id>/base", methods=["POST"])
 def api_set_base(unit_id):
+    # Only allow setting base for units 1 and 2
+    if unit_id not in (1, 2):
+        return jsonify({"error": "unit not active for modifications; read-only zeros"}), 400
     payload = request.json or {}
     base_highs = payload.get("base_highs")
     if not isinstance(base_highs, list) or len(base_highs) != 8:
@@ -226,6 +253,9 @@ def api_pause():
 def api_params(unit_id):
     if request.method == "GET":
         return jsonify(_sim_state["params"].get(unit_id, {}))
+    # only allow changes for units 1 and 2
+    if unit_id not in (1, 2):
+        return jsonify({"error": "unit not active for modifications; read-only zeros"}), 400
     payload = request.json or {}
     # optional keys: amplitudes (list of 8 ints), periods (list of 8 ints), jitter_scale (float)
     if "amplitudes" in payload:
@@ -254,6 +284,9 @@ def api_spike(unit_id):
       "kind": "burst"          # optional label
     }
     """
+    # only allow spikes on simulated units 1 and 2
+    if unit_id not in (1, 2):
+        return jsonify({"error": "unit not active for modifications; read-only zeros"}), 400
     payload = request.json or {}
     idx = payload.get("idx")
     magnitude = int(payload.get("magnitude", 0))
@@ -303,9 +336,14 @@ def main():
     _sim_state["update_interval"] = 0.005
     _sim_state["print_interval"] = 0.25
 
+    # start Modbus server
     Thread(target=start_modbus_server, args=(args.modbus_host, args.modbus_port), daemon=True).start()
+
+    # start simulation only for units 1 and 2
     Thread(target=simulate_slave, args=(1, _sim_state["update_interval"]), daemon=True).start()
     Thread(target=simulate_slave, args=(2, _sim_state["update_interval"]), daemon=True).start()
+
+    # monitor (prints all units; many will show zeros)
     Thread(target=pretty_monitor, args=(_sim_state["print_interval"],), daemon=True).start()
 
     def run_flask():

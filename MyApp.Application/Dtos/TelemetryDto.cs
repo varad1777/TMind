@@ -8,8 +8,8 @@ namespace MyApp.Application.Dtos
 {
     public record TelemetryDto(
     Guid DeviceId,
-    Guid DevicePortId,
-    int PortIndex,
+    Guid deviceSlaveId,
+    int slaveIndex,
     int RegisterAddress,
     string SignalType,
     double Value,

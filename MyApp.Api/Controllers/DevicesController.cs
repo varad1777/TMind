@@ -178,7 +178,7 @@ namespace MyApp.Api.Controllers
             {
                 var newPortId = await _mgr.AddPortAsync(id, dto, ct);
                 // return created with location to GET single port
-                return CreatedAtAction(nameof(GetPort), new { deviceId = id, portIndex = dto.PortIndex }, new { devicePortId = newPortId });
+                return CreatedAtAction(nameof(GetPort), new { deviceId = id, slaveIndex = dto.slaveIndex }, new { deviceSlaveId = newPortId });
             }
             catch (KeyNotFoundException ex)
             {
@@ -196,14 +196,14 @@ namespace MyApp.Api.Controllers
         }
 
         // PUT -> update existing port
-        [HttpPut("{id:guid}/ports/{portIndex:int}")]
+        [HttpPut("{id:guid}/ports/{slaveIndex:int}")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> UpdatePort(Guid id, int portIndex, [FromBody] AddPortDto dto, CancellationToken ct)
+        public async Task<IActionResult> UpdatePort(Guid id, int slaveIndex, [FromBody] AddPortDto dto, CancellationToken ct)
         {
             if (dto == null) return BadRequest(new { error = "Payload required" });
             try
             {
-                await _mgr.UpdatePortAsync(id, portIndex, dto, ct);
+                await _mgr.UpdatePortAsync(id, slaveIndex, dto, ct);
                 return NoContent();
             }
             catch (KeyNotFoundException ex)
@@ -223,10 +223,10 @@ namespace MyApp.Api.Controllers
 
 
         // GET single port (used by CreatedAtAction)
-        [HttpGet("{deviceId:guid}/ports/{portIndex:int}")]
-        public async Task<IActionResult> GetPort(Guid deviceId, int portIndex, CancellationToken ct)
+        [HttpGet("{deviceId:guid}/ports/{slaveIndex:int}")]
+        public async Task<IActionResult> GetPort(Guid deviceId, int slaveIndex, CancellationToken ct)
         {
-            var port = await _mgr.GetPortAsync(deviceId, portIndex, ct);
+            var port = await _mgr.GetPortAsync(deviceId, slaveIndex, ct);
             if (port == null) return NotFound();
             return Ok(port);
         }
@@ -405,7 +405,7 @@ namespace MyApp.Api.Controllers
             try
             {
                 var ports = await _mgr.GetPortsByDeviceAsync(deviceId, ct);
-                var port = ports.FirstOrDefault(p => p.DevicePortId == portId);
+                var port = ports.FirstOrDefault(p => p.deviceSlaveId == portId);
                 if (port == null) return NotFound(ApiResponse<object>.Fail("Port not found."));
                 return Ok(ApiResponse<object>.Ok(port));
             }

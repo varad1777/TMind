@@ -81,9 +81,9 @@ namespace MyApp.Infrastructure.Migrations
                     b.ToTable("DeviceConfigurations");
                 });
 
-            modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
+            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlave", b =>
                 {
-                    b.Property<Guid>("DevicePortId")
+                    b.Property<Guid>("deviceSlaveId")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
@@ -93,15 +93,15 @@ namespace MyApp.Infrastructure.Migrations
                     b.Property<bool>("IsHealthy")
                         .HasColumnType("bit");
 
-                    b.Property<int>("PortIndex")
+                    b.Property<int>("slaveIndex")
                         .HasColumnType("int");
 
-                    b.HasKey("DevicePortId");
+                    b.HasKey("deviceSlaveId");
 
-                    b.HasIndex("DeviceId", "PortIndex")
+                    b.HasIndex("DeviceId", "slaveIndex")
                         .IsUnique();
 
-                    b.ToTable("DevicePorts");
+                    b.ToTable("DeviceSlaves");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
@@ -118,7 +118,7 @@ namespace MyApp.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<Guid>("DevicePortId")
+                    b.Property<Guid>("deviceSlaveId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsHealthy")
@@ -142,7 +142,7 @@ namespace MyApp.Infrastructure.Migrations
 
                     b.HasKey("RegisterId");
 
-                    b.HasIndex("DevicePortId", "RegisterAddress")
+                    b.HasIndex("deviceSlaveId", "RegisterAddress")
                         .IsUnique();
 
                     b.ToTable("Registers");
@@ -157,10 +157,10 @@ namespace MyApp.Infrastructure.Migrations
                     b.Navigation("DeviceConfiguration");
                 });
 
-            modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
+            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlave", b =>
                 {
                     b.HasOne("MyApp.Domain.Entities.Device", "Device")
-                        .WithMany("DevicePorts")
+                        .WithMany("DeviceSlaves")
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -170,21 +170,21 @@ namespace MyApp.Infrastructure.Migrations
 
             modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
                 {
-                    b.HasOne("MyApp.Domain.Entities.DevicePort", "DevicePort")
+                    b.HasOne("MyApp.Domain.Entities.DeviceSlave", "DeviceSlave")
                         .WithMany("Registers")
-                        .HasForeignKey("DevicePortId")
+                        .HasForeignKey("deviceSlaveId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("DevicePort");
+                    b.Navigation("DeviceSlave");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
                 {
-                    b.Navigation("DevicePorts");
+                    b.Navigation("DeviceSlaves");
                 });
 
-            modelBuilder.Entity("MyApp.Domain.Entities.DevicePort", b =>
+            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlave", b =>
                 {
                     b.Navigation("Registers");
                 });

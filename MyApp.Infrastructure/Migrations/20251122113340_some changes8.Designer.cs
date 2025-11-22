@@ -12,8 +12,8 @@ using MyApp.Infrastructure.Data;
 namespace MyApp.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20251112103458_device name unique")]
-    partial class devicenameunique
+    [Migration("20251122113340_some changes8")]
+    partial class somechanges8
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -45,7 +45,7 @@ namespace MyApp.Infrastructure.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Protocol")
                         .HasColumnType("nvarchar(max)");
@@ -53,9 +53,6 @@ namespace MyApp.Infrastructure.Migrations
                     b.HasKey("DeviceId");
 
                     b.HasIndex("DeviceConfigurationId");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
 
                     b.ToTable("Devices");
                 });
@@ -90,10 +87,6 @@ namespace MyApp.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("DataType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uniqueidentifier");
 
@@ -103,8 +96,30 @@ namespace MyApp.Infrastructure.Migrations
                     b.Property<int>("slaveIndex")
                         .HasColumnType("int");
 
-                    b.Property<Guid>("PortSetId")
+                    b.HasKey("deviceSlaveId");
+
+                    b.HasIndex("DeviceId", "slaveIndex")
+                        .IsUnique();
+
+                    b.ToTable("DeviceSlaves");
+                });
+
+            modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
+                {
+                    b.Property<Guid>("RegisterId")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ByteOrder")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<bool>("IsHealthy")
+                        .HasColumnType("bit");
 
                     b.Property<int>("RegisterAddress")
                         .HasColumnType("int");
@@ -116,38 +131,21 @@ namespace MyApp.Infrastructure.Migrations
                         .HasColumnType("float");
 
                     b.Property<string>("Unit")
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
-                    b.HasKey("deviceSlaveId");
+                    b.Property<bool>("WordSwap")
+                        .HasColumnType("bit");
 
-                    b.HasIndex("PortSetId");
-
-                    b.HasIndex("DeviceId", "slaveIndex");
-
-                    b.ToTable("DeviceSlaves");
-                });
-
-            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlaveSet", b =>
-                {
-                    b.Property<Guid>("PortSetId")
-                        .ValueGeneratedOnAdd()
+                    b.Property<Guid>("deviceSlaveId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
+                    b.HasKey("RegisterId");
 
-                    b.Property<Guid>("DeviceId")
-                        .HasColumnType("uniqueidentifier");
+                    b.HasIndex("deviceSlaveId", "RegisterAddress")
+                        .IsUnique();
 
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("PortSetId");
-
-                    b.HasIndex("DeviceId");
-
-                    b.ToTable("DeviceSlaveSets");
+                    b.ToTable("Registers");
                 });
 
             modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
@@ -161,24 +159,34 @@ namespace MyApp.Infrastructure.Migrations
 
             modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlave", b =>
                 {
-                    b.HasOne("MyApp.Domain.Entities.DeviceSlaveSet", "PortSet")
-                        .WithMany()
-                        .HasForeignKey("PortSetId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("PortSet");
-                });
-
-            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlaveSet", b =>
-                {
                     b.HasOne("MyApp.Domain.Entities.Device", "Device")
-                        .WithMany()
+                        .WithMany("DeviceSlave")
                         .HasForeignKey("DeviceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("MyApp.Domain.Entities.Register", b =>
+                {
+                    b.HasOne("MyApp.Domain.Entities.DeviceSlave", "DeviceSlave")
+                        .WithMany("Registers")
+                        .HasForeignKey("deviceSlaveId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DeviceSlave");
+                });
+
+            modelBuilder.Entity("MyApp.Domain.Entities.Device", b =>
+                {
+                    b.Navigation("DeviceSlave");
+                });
+
+            modelBuilder.Entity("MyApp.Domain.Entities.DeviceSlave", b =>
+                {
+                    b.Navigation("Registers");
                 });
 #pragma warning restore 612, 618
         }

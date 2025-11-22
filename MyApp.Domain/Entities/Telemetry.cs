@@ -12,6 +12,6 @@ namespace MyApp.Domain.Entities
 
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public Guid? MappingId { get; set; }
-        public Guid DevicePortId { get; set; }
+        public Guid deviceSlaveId { get; set; }
     }
 }
