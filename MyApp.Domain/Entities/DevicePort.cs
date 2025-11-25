@@ -53,7 +53,7 @@ namespace MyApp.Domain.Entities
         public DeviceSlave DeviceSlave { get; set; } = null!;
 
     }
-
+        
 
 
     //public class DeviceSlaveSet

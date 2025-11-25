@@ -1,0 +1,21 @@
+syntax = "proto3";
+package serviceb;
+
+message IdsRequest {
+  repeated string ids = 1;
+}
+
+message SignalType {
+  string signalTypeId = 1;
+  string signalName = 2;
+  string signalUnit = 3;
+  int32 defaultRegisterAddress = 4;
+}
+
+message SignalTypesResponse {
+  repeated SignalType signalTypes = 1;
+}
+
+service SignalTypeService {
+  rpc GetSignalTypesByIds (IdsRequest) returns (SignalTypesResponse);
+}

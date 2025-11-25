@@ -41,8 +41,7 @@ namespace MyApp.Application.Interfaces
         Task<DeviceSlave?> GetPortAsync(Guid deviceId, int slaveIndex, CancellationToken ct = default);
 
 
-
-        Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default);
+        Task<List<MatchedDeviceDto>> GetDevicesMatchingRegisterAddressesAsync(int[] registerAddresses, CancellationToken ct);        Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default);
         Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default);
     }
 }
