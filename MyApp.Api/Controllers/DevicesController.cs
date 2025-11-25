@@ -161,12 +161,6 @@ namespace MyApp.Api.Controllers
 
 
 
-
-
-
-
-
-
         // POST -> create new port
         [HttpPost("{id:guid}/ports")]
         [Authorize(Roles = "Admin")]
@@ -230,11 +224,6 @@ namespace MyApp.Api.Controllers
             if (port == null) return NotFound();
             return Ok(port);
         }
-
-
-
-
-
 
 
 
@@ -416,8 +405,48 @@ namespace MyApp.Api.Controllers
             }
         }
 
+
+
+
+        [HttpPost("match-by-address")]
+        public async Task<IActionResult> MatchByAddress([FromBody] SignalAddressRequest request, CancellationToken ct)
+        {
+            if (request?.RegisterAddresses == null || request.RegisterAddresses.Length == 0)
+                return BadRequest("registerAddresses required");
+
+            try
+            {
+                var matched = await _mgr.GetDevicesMatchingRegisterAddressesAsync(request.RegisterAddresses, ct);
+                //return Ok(matched);
+                return Ok(ApiResponse<object>.Ok(matched));
+            }
+            catch (ArgumentException aex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(aex.Message));
+                
+            }
+            catch (OperationCanceledException)
+            {
+                return StatusCode(StatusCodes.Status408RequestTimeout, "request cancelled");
+            }
+            catch (Exception ex)
+            {
+                return StatusCode((int)HttpStatusCode.InternalServerError, ApiResponse<object>.Fail(ex.Message));
+            }
+        }
+
+
+
+
     }
       
+
+
+
+
+
+
+
     // If you haven't already moved this DTO to the Application.Dtos project, keep it or move it.
     public class UpdateDeviceRequest
     {
