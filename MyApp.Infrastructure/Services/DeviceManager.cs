@@ -418,108 +418,119 @@ namespace MyApp.Infrastructure.Services
 
 
 
-        public async Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default)
-        {
-            if (dto == null) throw new ArgumentNullException(nameof(dto));
+            public async Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default)
+            {
+                if (dto == null) throw new ArgumentNullException(nameof(dto));
+            if (dto.Registers.Count > 5)
+                throw new InvalidOperationException("A slave can have a maximum of 5 registers.");
 
             var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
-            if (device == null || device.IsDeleted) throw new KeyNotFoundException("Device not found");
+                if (device == null || device.IsDeleted) throw new KeyNotFoundException("Device not found");
+
+            var slaveCount = await _db.DeviceSlaves.CountAsync(s => s.DeviceId == deviceId, ct);
+            if (slaveCount >= 2)
+                throw new InvalidOperationException("A device can have a maximum of 2 slaves.");
 
             var exists = await _db.DeviceSlaves.AnyAsync(p => p.DeviceId == deviceId && p.slaveIndex == dto.slaveIndex, ct);
-            if (exists) throw new InvalidOperationException($"Port with index {dto.slaveIndex} already exists");
+                if (exists) throw new InvalidOperationException($"Port with index {dto.slaveIndex} already exists");
 
-            var port = new DeviceSlave
-            {
-                DeviceId = deviceId,
-                slaveIndex = dto.slaveIndex,
-                IsHealthy = dto.IsHealthy,
-                Registers = dto.Registers.Select(r => new Register
+                var port = new DeviceSlave
                 {
-                    RegisterAddress = r.RegisterAddress,
-                    RegisterLength = r.RegisterLength,
-                    DataType = r.DataType,
-                    Scale = r.Scale,
-                    Unit = r.Unit,
-                    ByteOrder = r.ByteOrder,
-                    WordSwap = r.WordSwap,
-                    IsHealthy = r.IsHealthy
-                }).ToList()
-            };
+                    DeviceId = deviceId,
+                    slaveIndex = dto.slaveIndex,
+                    IsHealthy = dto.IsHealthy,
+                    Registers = dto.Registers.Select(r => new Register
+                    {
+                        RegisterAddress = r.RegisterAddress,
+                        RegisterLength = r.RegisterLength,
+                        DataType = r.DataType,
+                        Scale = r.Scale,
+                        Unit = r.Unit,
+                        ByteOrder = r.ByteOrder,
+                        WordSwap = r.WordSwap,
+                        IsHealthy = r.IsHealthy
+                    }).ToList()
+                };
 
-            await _db.DeviceSlaves.AddAsync(port, ct);
-            await _db.SaveChangesAsync(ct);
-            return port.deviceSlaveId;
-        }
+                await _db.DeviceSlaves.AddAsync(port, ct);
+                await _db.SaveChangesAsync(ct);
+                return port.deviceSlaveId;
+            }
 
-        // Update port: REPLACE registers with DTO list — robust approach
-        public async Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default)
-        {
-            if (dto == null) throw new ArgumentNullException(nameof(dto));
+            // Update port: REPLACE registers with DTO list — robust approach
+            public async Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default)
+            {
+                if (dto == null) throw new ArgumentNullException(nameof(dto));
+
+
+
+            if (dto.Registers.Count > 5)
+                throw new InvalidOperationException("A slave can have a maximum of 5 registers.");
 
             // find the port
             var port = await _db.DeviceSlaves
-                .AsNoTracking() // load fresh, we'll attach as needed
-                .FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
+                    .AsNoTracking() // load fresh, we'll attach as needed
+                    .FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
 
-            if (port == null) throw new KeyNotFoundException($"Port {slaveIndex} not found for device");
+                if (port == null) throw new KeyNotFoundException($"Port {slaveIndex} not found for device");
 
-            // Start a transaction for atomicity
-            await using var tx = await _db.Database.BeginTransactionAsync(ct);
-            try
-            {
-                // 1) Delete existing registers for this port by DB query (ensures matching rows are deleted)
-                var existingRegisters = _db.Registers.Where(r => r.deviceSlaveId == port.deviceSlaveId);
-                _db.Registers.RemoveRange(existingRegisters);
-                await _db.SaveChangesAsync(ct); // commit deletes
-
-                // 2) Attach the port entity so we can update its properties and add new registers
-                port = await _db.DeviceSlaves.FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
-                if (port == null)
+                // Start a transaction for atomicity
+                await using var tx = await _db.Database.BeginTransactionAsync(ct);
+                try
                 {
-                    // very unlikely (deleted between calls)
-                    throw new InvalidOperationException("Port disappeared during update; please retry.");
+                    // 1) Delete existing registers for this port by DB query (ensures matching rows are deleted)
+                    var existingRegisters = _db.Registers.Where(r => r.deviceSlaveId == port.deviceSlaveId);
+                    _db.Registers.RemoveRange(existingRegisters);
+                    await _db.SaveChangesAsync(ct); // commit deletes
+
+                    // 2) Attach the port entity so we can update its properties and add new registers
+                    port = await _db.DeviceSlaves.FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
+                    if (port == null)
+                    {
+                        // very unlikely (deleted between calls)
+                        throw new InvalidOperationException("Port disappeared during update; please retry.");
+                    }
+
+                    port.IsHealthy = dto.IsHealthy;
+
+                    // 3) Add new registers from DTO
+                    var newRegisters = dto.Registers.Select(r => new Register
+                    {
+                        RegisterAddress = r.RegisterAddress,
+                        RegisterLength = r.RegisterLength,
+                        DataType = r.DataType,
+                        Scale = r.Scale,
+                        Unit = r.Unit,
+                        ByteOrder = r.ByteOrder,
+                        WordSwap = r.WordSwap,
+                        IsHealthy = r.IsHealthy,
+                        deviceSlaveId = port.deviceSlaveId
+                    }).ToList();
+
+                    // Use AddRange on DB set so EF tracks them correctly
+                    await _db.Registers.AddRangeAsync(newRegisters, ct);
+
+                    // Save all changes (adds)
+                    await _db.SaveChangesAsync(ct);
+
+                    // commit transaction
+                    await tx.CommitAsync(ct);
                 }
-
-                port.IsHealthy = dto.IsHealthy;
-
-                // 3) Add new registers from DTO
-                var newRegisters = dto.Registers.Select(r => new Register
+                catch (DbUpdateConcurrencyException ex)
                 {
-                    RegisterAddress = r.RegisterAddress,
-                    RegisterLength = r.RegisterLength,
-                    DataType = r.DataType,
-                    Scale = r.Scale,
-                    Unit = r.Unit,
-                    ByteOrder = r.ByteOrder,
-                    WordSwap = r.WordSwap,
-                    IsHealthy = r.IsHealthy,
-                    deviceSlaveId = port.deviceSlaveId
-                }).ToList();
-
-                // Use AddRange on DB set so EF tracks them correctly
-                await _db.Registers.AddRangeAsync(newRegisters, ct);
-
-                // Save all changes (adds)
-                await _db.SaveChangesAsync(ct);
-
-                // commit transaction
-                await tx.CommitAsync(ct);
+                    _log.LogError(ex, "Concurrency error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
+                    await tx.RollbackAsync(ct);
+                    throw new InvalidOperationException("Concurrency error while updating port", ex);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "Error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
+                    await tx.RollbackAsync(ct);
+                    throw;
+                }
             }
-            catch (DbUpdateConcurrencyException ex)
-            {
-                _log.LogError(ex, "Concurrency error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
-                await tx.RollbackAsync(ct);
-                throw new InvalidOperationException("Concurrency error while updating port", ex);
-            }
-            catch (Exception ex)
-            {
-                _log.LogError(ex, "Error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
-                await tx.RollbackAsync(ct);
-                throw;
-            }
-        }
 
-        // optional getter
+            // optional getter
         public async Task<DeviceSlave?> GetPortAsync(Guid deviceId, int slaveIndex, CancellationToken ct = default)
         {
             return await _db.DeviceSlaves
