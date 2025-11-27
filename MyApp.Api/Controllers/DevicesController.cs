@@ -373,6 +373,7 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices/{deviceId}/ports
         [HttpGet("{deviceId}/ports")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetPortsByDevice(Guid deviceId, CancellationToken ct = default)
         {
             try
@@ -389,6 +390,7 @@ namespace MyApp.Api.Controllers
 
         // GET /api/devices/{deviceId}/ports/{portId}
         [HttpGet("{deviceId:guid}/ports/{portId:guid}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetPort(Guid deviceId, Guid portId, CancellationToken ct = default)
         {
             try
@@ -409,6 +411,7 @@ namespace MyApp.Api.Controllers
 
 
         [HttpPost("match-by-address")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> MatchByAddress([FromBody] SignalAddressRequest request, CancellationToken ct)
         {
             if (request?.RegisterAddresses == null || request.RegisterAddresses.Length == 0)

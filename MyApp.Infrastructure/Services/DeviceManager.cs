@@ -534,13 +534,14 @@ namespace MyApp.Infrastructure.Services
 
 
 
-
-        public async Task<List<MatchedDeviceDto>> GetDevicesMatchingRegisterAddressesAsync(int[] registerAddresses, CancellationToken ct)
+        public async Task<List<MatchedDeviceDto>> GetDevicesMatchingRegisterAddressesAsync(
+            int[] registerAddresses,
+            CancellationToken ct)
         {
             if (registerAddresses == null || registerAddresses.Length == 0)
                 throw new ArgumentException("registerAddresses required");
 
-            // validate & dedupe
+            // 1) Validate & dedupe
             var addresses = registerAddresses
                 .Where(a => a >= 0 && a <= 65535)
                 .Distinct()
@@ -549,28 +550,33 @@ namespace MyApp.Infrastructure.Services
             if (addresses.Length == 0)
                 throw new ArgumentException("No valid register addresses provided.");
 
-            if (addresses.Length > 1000) // safety
+            if (addresses.Length > 1000) // safety limit
                 throw new ArgumentException("Too many addresses.");
 
-            // 1) Query DB for devices that have at least one matching register (this is translated to SQL EXISTS)
+            // 2) Query DB for devices that contain ALL the requested register addresses
             var devices = await _db.Devices
                 .AsNoTracking()
-                .Where(d => d.DeviceSlave.Any(ds => ds.Registers.Any(r => addresses.Contains(r.RegisterAddress))))
+                .Where(d => !d.IsDeleted &&
+                    d.DeviceSlave
+                     .SelectMany(ds => ds.Registers)
+                     .Where(r => addresses.Contains(r.RegisterAddress))
+                     .Select(r => r.RegisterAddress)
+                     .Distinct()
+                     .Count() == addresses.Length
+                )
                 .Include(d => d.DeviceSlave)
                     .ThenInclude(ds => ds.Registers)
                 .ToListAsync(ct);
 
-            // Debug log: how many devices were loaded and how many addresses we are checking
-
-            // 2) Map in-memory — keep only slaves and registers that match
+            // 3) Map in-memory — keep only slaves & registers that match
             var result = new List<MatchedDeviceDto>();
 
             foreach (var d in devices)
             {
                 var matchedSlaves = new List<MatchedSlaveDto>();
+
                 foreach (var ds in d.DeviceSlave)
                 {
-                    // make sure registers collection is not null
                     var regs = ds.Registers ?? new List<Register>();
 
                     var matchedRegs = regs
@@ -614,8 +620,6 @@ namespace MyApp.Infrastructure.Services
 
             return result;
         }
-
-
 
 
 
