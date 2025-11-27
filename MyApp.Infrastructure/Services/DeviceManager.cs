@@ -26,6 +26,12 @@ namespace MyApp.Infrastructure.Services
             var name = (request.Name ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(name)) throw new ArgumentException("Device name is required.", nameof(request.Name));
 
+            const int MaxDevices = 2;
+            var currentCount = await _db.Devices.CountAsync(d => !d.IsDeleted, ct);
+            if (currentCount >= MaxDevices)
+                throw new InvalidOperationException($"Cannot create more than {MaxDevices} devices.");
+
+
             var exists = await _db.Devices
                                  .AsNoTracking()
                                  .AnyAsync(d => !d.IsDeleted && d.Name.ToLower() == name.ToLower(), ct);
