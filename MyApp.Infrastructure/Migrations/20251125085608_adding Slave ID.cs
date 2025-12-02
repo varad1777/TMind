@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace MyApp.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class softdelete : Migration
+    public partial class addingSlaveID : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -49,19 +49,19 @@ namespace MyApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "DeviceSlaveSets",
+                name: "DeviceSlaves",
                 columns: table => new
                 {
-                    PortSetId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    deviceSlaveId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     DeviceId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    State = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                    slaveIndex = table.Column<int>(type: "int", nullable: false),
+                    IsHealthy = table.Column<bool>(type: "bit", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DeviceSlaveSets", x => x.PortSetId);
+                    table.PrimaryKey("PK_DeviceSlaves", x => x.deviceSlaveId);
                     table.ForeignKey(
-                        name: "FK_DeviceSlaveSets_Devices_DeviceId",
+                        name: "FK_DeviceSlaves_Devices_DeviceId",
                         column: x => x.DeviceId,
                         principalTable: "Devices",
                         principalColumn: "DeviceId",
@@ -69,60 +69,57 @@ namespace MyApp.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "DeviceSlaves",
+                name: "Registers",
                 columns: table => new
                 {
-                    deviceSlaveId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PortSetId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    slaveIndex = table.Column<int>(type: "int", nullable: false),
+                    RegisterId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RegisterAddress = table.Column<int>(type: "int", nullable: false),
                     RegisterLength = table.Column<int>(type: "int", nullable: false),
-                    DataType = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DataType = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
                     Scale = table.Column<double>(type: "float", nullable: false),
-                    Unit = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    Unit = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: true),
                     IsHealthy = table.Column<bool>(type: "bit", nullable: false),
-                    DeviceId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    ByteOrder = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    WordSwap = table.Column<bool>(type: "bit", nullable: false),
+                    deviceSlaveId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_DeviceSlaves", x => x.deviceSlaveId);
+                    table.PrimaryKey("PK_Registers", x => x.RegisterId);
                     table.ForeignKey(
-                        name: "FK_DeviceSlaves_DeviceSlaveSets_PortSetId",
-                        column: x => x.PortSetId,
-                        principalTable: "DeviceSlaveSets",
-                        principalColumn: "PortSetId",
+                        name: "FK_Registers_DeviceSlaves_deviceSlaveId",
+                        column: x => x.deviceSlaveId,
+                        principalTable: "DeviceSlaves",
+                        principalColumn: "deviceSlaveId",
                         onDelete: ReferentialAction.Cascade);
                 });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
-                table: "DeviceSlaves",
-                columns: new[] { "DeviceId", "slaveIndex" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DeviceSlaves_PortSetId",
-                table: "DeviceSlaves",
-                column: "PortSetId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_DeviceSlaveSets_DeviceId",
-                table: "DeviceSlaveSets",
-                column: "DeviceId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Devices_DeviceConfigurationId",
                 table: "Devices",
                 column: "DeviceConfigurationId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DeviceSlaves_DeviceId_slaveIndex",
+                table: "DeviceSlaves",
+                columns: new[] { "DeviceId", "slaveIndex" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Registers_deviceSlaveId_RegisterAddress",
+                table: "Registers",
+                columns: new[] { "deviceSlaveId", "RegisterAddress" },
+                unique: true);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "DeviceSlaves");
+                name: "Registers");
 
             migrationBuilder.DropTable(
-                name: "DeviceSlaveSets");
+                name: "DeviceSlaves");
 
             migrationBuilder.DropTable(
                 name: "Devices");
