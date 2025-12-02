@@ -282,7 +282,7 @@ namespace MyApp.Infrastructure.Services
 
             // Acquire semaphore to limit concurrent network connections/polls.
             // This ensures we don't overload network/DB/CPU when many device loops run.
-            await _semaphore.WaitAsync(ct);
+            await _semaphore.WaitAsync(ct);  // this basically used to controll the concurrent access.
             try
             {
                 // Connect to device TCP with a short timeout
@@ -315,7 +315,7 @@ namespace MyApp.Infrastructure.Services
                     int j = 0;
                     while (j < itemsForSlave.Count)
                     {
-                        int start = itemsForSlave[j].ProtoAddr;
+                        int start = itemsForSlave[j].ProtoAddr; //0 
                         int end = start + itemsForSlave[j].Length - 1;
                         var items = new List<dynamic> { itemsForSlave[j] };
                         j++;

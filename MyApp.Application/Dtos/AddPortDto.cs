@@ -32,6 +32,8 @@ namespace MyApp.Application.Dtos
         public string? ByteOrder { get; set; }
 
         public bool WordSwap { get; set; } = false;
+
+        public Guid? registerId { get; set; }
     }
 
     public class AddPortDto
@@ -39,7 +41,10 @@ namespace MyApp.Application.Dtos
         [Range(0, int.MaxValue)]
         public int slaveIndex { get; set; }
 
-       
+        public Guid deviceSlaveId { get; set; }
+
+
+
         public List<RegisterDto> Registers { get; set; } = new();
 
         public bool IsHealthy { get; set; } = true;
