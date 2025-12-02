@@ -36,7 +36,7 @@ namespace MyApp.Infrastructure.Services
 
             // durable fanout exchange (messages routed to all bound queues)
             ch.ExchangeDeclare(exchange: _exchange, type: ExchangeType.Fanout, durable: true, autoDelete: false);
-
+            // also we have direct also which use the key 
             // declare the queue (durable so it survives broker restart)
             ch.QueueDeclare(
                 queue: _queueName,

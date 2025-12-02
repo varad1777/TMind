@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using MyApp.Application.Interfaces;
 using MyApp.Infrastructure.Data;
@@ -10,12 +11,6 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Polly;
 using Serilog;
-
-
-
-
-
-
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -57,8 +52,17 @@ builder.Services.AddControllers();                       // <-- important
 builder.Services.AddEndpointsApiExplorer();              // discovers endpoints for swagger
 builder.Services.AddSwaggerGen();                        // <-- registers ISwaggerProvider
 
+// This is for Asset DB access (only MappingTable or other needed tables)
+builder.Services.AddDbContext<AssetDbContextForDevice>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("AssetDbConnection")));
+
+
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+
+
+
 
 builder.Services.AddScoped<IDeviceManager, DeviceManager>();
 builder.Services.AddHostedService<ModbusPollerHostedService>();
