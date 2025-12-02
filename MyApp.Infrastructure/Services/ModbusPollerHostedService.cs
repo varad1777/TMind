@@ -508,7 +508,8 @@ namespace MyApp.Infrastructure.Services
                                 SignalType: r.SignalType,
                                 Value: r.Value,
                                 Unit: r.Unit,
-                                Timestamp: now
+                                Timestamp: DateTime.Now
+
                             );
                         }).ToList();
 
