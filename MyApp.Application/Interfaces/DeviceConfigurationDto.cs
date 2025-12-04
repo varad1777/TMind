@@ -43,5 +43,7 @@ namespace MyApp.Application.Interfaces
 
         Task<List<MatchedDeviceDto>> GetDevicesMatchingRegisterAddressesAsync(int[] registerAddresses, CancellationToken ct);        Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default);
         Task<Guid> AddPortAsync(Guid deviceId, AddPortDto dto, CancellationToken ct = default);
+        Task<BulkCreateDeviceResultDto> CreateDevicesBulkAsync(BulkCreateDeviceDto request, CancellationToken ct = default);
+
     }
 }

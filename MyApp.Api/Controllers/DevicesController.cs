@@ -439,10 +439,34 @@ namespace MyApp.Api.Controllers
         }
 
 
+        [HttpPost("bulk")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> BulkCreate([FromBody] BulkCreateDeviceDto dto)
+        {
+            try
+            {
+                var result = await _mgr.CreateDevicesBulkAsync(dto);
+                return Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                var result = new BulkCreateDeviceResultDto();
+                result.Errors.Add(ex.Message);
+                return BadRequest(result); // returns JSON with errors
+            }
+            catch (ArgumentException ex)
+            {
+                var result = new BulkCreateDeviceResultDto();
+                result.Errors.Add(ex.Message);
+                return BadRequest(result);
+            }
+        }
+
+
 
 
     }
-      
+
 
 
 
