@@ -56,12 +56,5 @@ namespace MyApp.Domain.Entities
         
 
 
-    //public class DeviceSlaveSet
-    //{
-    //    [Key]
-    //    public Guid PortSetId { get; set; } = Guid.NewGuid();
-
-    //    public Guid DeviceId { get; set; }
-    //    public Device Device { get; set; } = null!;
-    //}
+    
 }

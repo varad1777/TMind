@@ -79,12 +79,15 @@ namespace MyApp.Infrastructure.Services
             _log.LogInformation("Created device {DeviceId}", device.DeviceId);
             return device.DeviceId;
         }
-        // remove: using System.Text.Json;
+        
+       
+        
+        
         public async Task UpdateDeviceAsync(Guid deviceId, UpdateDeviceDto dto, DeviceConfigurationDto? configDto = null, CancellationToken ct = default)
         {
             var device = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
             if (device == null) throw new KeyNotFoundException("Device not found");
-            
+
             var isMapped = await _assetDb.MappingTable
                                  .AsNoTracking()
                                  .AnyAsync(m => m.DeviceId == deviceId, ct);
@@ -481,84 +484,7 @@ namespace MyApp.Infrastructure.Services
             return port.deviceSlaveId;
         }
 
-        //// Update port: REPLACE registers with DTO list — robust approach
-        //public async Task UpdatePortAsync(Guid deviceId, int slaveIndex, AddPortDto dto, CancellationToken ct = default)
-        //{
-        //    if (dto == null) throw new ArgumentNullException(nameof(dto));
-
-
-
-
-
-        //    if (dto.Registers.Count > 5)
-        //        throw new InvalidOperationException("A slave can have a maximum of 5 registers.");
-
-        //    // find the port
-        //    var port = await _db.DeviceSlaves
-        //            .AsNoTracking() // load fresh, we'll attach as needed
-        //            .FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
-
-        //    if (port == null) throw new KeyNotFoundException($"Port {slaveIndex} not found for device");
-
-        //    // Start a transaction for atomicity
-        //    await using var tx = await _db.Database.BeginTransactionAsync(ct);
-        //    try
-        //    {
-        //        // 1) Delete existing registers for this port by DB query (ensures matching rows are deleted)
-        //        var existingRegisters = _db.Registers.Where(r => r.deviceSlaveId == port.deviceSlaveId);
-        //        _db.Registers.RemoveRange(existingRegisters);
-        //        await _db.SaveChangesAsync(ct); // commit deletes
-
-        //        // 2) Attach the port entity so we can update its properties and add new registers
-        //        port = await _db.DeviceSlaves.FirstOrDefaultAsync(p => p.DeviceId == deviceId && p.slaveIndex == slaveIndex, ct);
-        //        if (port == null)
-        //        {
-        //            // very unlikely (deleted between calls)
-        //            throw new InvalidOperationException("Port disappeared during update; please retry.");
-        //        }
-
-        //        port.IsHealthy = dto.IsHealthy;
-
-        //        // 3) Add new registers from DTO
-        //        var newRegisters = dto.Registers.Select(r => new Register
-        //        {
-        //            RegisterAddress = r.RegisterAddress,
-        //            RegisterLength = r.RegisterLength,
-        //            DataType = r.DataType,
-        //            Scale = r.Scale,
-        //            Unit = r.Unit,
-        //            ByteOrder = r.ByteOrder,
-        //            WordSwap = r.WordSwap,
-        //            IsHealthy = r.IsHealthy,
-        //            deviceSlaveId = port.deviceSlaveId
-        //        }).ToList();
-
-        //        // Use AddRange on DB set so EF tracks them correctly
-        //        await _db.Registers.AddRangeAsync(newRegisters, ct);
-
-        //        // Save all changes (adds)
-        //        await _db.SaveChangesAsync(ct);
-
-        //        // commit transaction
-        //        await tx.CommitAsync(ct);
-        //    }
-        //    catch (DbUpdateConcurrencyException ex)
-        //    {
-        //        _log.LogError(ex, "Concurrency error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
-        //        await tx.RollbackAsync(ct);
-        //        throw new InvalidOperationException("Concurrency error while updating port", ex);
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        _log.LogError(ex, "Error updating port {DeviceId}/{slaveIndex}", deviceId, slaveIndex);
-        //        await tx.RollbackAsync(ct);
-        //        throw;
-        //    }
-        //}
-
-
-
-
+        
 
 
 
@@ -663,21 +589,19 @@ namespace MyApp.Infrastructure.Services
                 await tx.CommitAsync(ct);
 
                 // 8) If there were mapped registerIds, notify caller which registerIds were skipped.
-                if (mappedRegisterIds.Any())
-                {
-                    // Try to find their addresses from incoming DTO for better messaging (optional)
-                    var skippedAddresses = dto.Registers
-                        .Where(r => r.registerId.HasValue && mappedRegisterIds.Contains(r.registerId.Value))
-                        .Select(r => r.RegisterAddress)
-                        .Distinct()
-                        .ToList();
+                //if (mappedRegisterIds.Any())
+                //{
+                //    // Try to find their addresses from incoming DTO for better messaging (optional)
+                //    var skippedAddresses = dto.Registers
+                //        .Where(r => r.registerId.HasValue && mappedRegisterIds.Contains(r.registerId.Value))
+                //        .Select(r => r.RegisterAddress)
+                //        .Distinct()
+                //        .ToList();
 
-                    throw new InvalidOperationException(
-                        $"The following registers were not updated because they are mapped to assets. " +
-                        $"registerIds: {string.Join(", ", mappedRegisterIds)}; " +
-                        (skippedAddresses.Any() ? $"addresses: {string.Join(", ", skippedAddresses)}" : "")
-                    );
-                }
+                //    throw new InvalidOperationException(
+                //        $"The following registers were not updated because they are mapped to assets. " + (skippedAddresses.Any() ? $"addresses: {string.Join(", ", skippedAddresses)}" : "")
+                //    );
+                //}
             }
             catch (DbUpdateConcurrencyException ex)
             {
@@ -746,19 +670,31 @@ namespace MyApp.Infrastructure.Services
                 throw new ArgumentException("Too many addresses.");
 
             // 2) Query DB for devices that contain ALL the requested register addresses
+            //var devices = await _db.Devices
+            //    .AsNoTracking()
+            //    .Where(d => !d.IsDeleted &&
+            //        d.DeviceSlave
+            //         .SelectMany(ds => ds.Registers)
+            //         .Where(r => addresses.Contains(r.RegisterAddress))
+            //         .Select(r => r.RegisterAddress)
+            //         .Distinct()
+            //         .Count() == addresses.Length
+            //    )
+            //    .Include(d => d.DeviceSlave)
+            //        .ThenInclude(ds => ds.Registers)
+            //    .ToListAsync(ct);
+
             var devices = await _db.Devices
-                .AsNoTracking()
-                .Where(d => !d.IsDeleted &&
-                    d.DeviceSlave
-                     .SelectMany(ds => ds.Registers)
-                     .Where(r => addresses.Contains(r.RegisterAddress))
-                     .Select(r => r.RegisterAddress)
-                     .Distinct()
-                     .Count() == addresses.Length
-                )
-                .Include(d => d.DeviceSlave)
-                    .ThenInclude(ds => ds.Registers)
-                .ToListAsync(ct);
+    .AsNoTracking()
+    .Where(d => !d.IsDeleted &&
+        d.DeviceSlave
+         .SelectMany(ds => ds.Registers)
+         .Any(r => addresses.Contains(r.RegisterAddress))
+    )
+    .Include(d => d.DeviceSlave)
+        .ThenInclude(ds => ds.Registers)
+    .ToListAsync(ct);
+
 
             // 3) Map in-memory — keep only slaves & registers that match
             var result = new List<MatchedDeviceDto>();
@@ -827,5 +763,86 @@ namespace MyApp.Infrastructure.Services
                 .Where(p => p.DeviceId == deviceId)
                 .ToListAsync(ct);
         }
+
+
+
+
+        public async Task<BulkCreateDeviceResultDto> CreateDevicesBulkAsync(BulkCreateDeviceDto request, CancellationToken ct = default)
+        {
+            if (request == null || request.Devices.Count == 0)
+                throw new ArgumentException("No devices provided.");
+
+            var result = new BulkCreateDeviceResultDto();
+
+            // Count existing active devices
+            var existingCount = await _db.Devices.CountAsync(d => !d.IsDeleted, ct);
+            if (existingCount + request.Devices.Count > 20)
+            {
+                result.Errors.Add(
+                    $"Cannot create {request.Devices.Count} devices. Total devices after creation would be {existingCount + request.Devices.Count}, but maximum allowed is 20."
+                );
+                return result; // early return, no devices are created
+            }
+
+
+            await using var tx = await _db.Database.BeginTransactionAsync(ct);
+
+            foreach (var dto in request.Devices)
+            {
+                try
+                {
+                    var name = dto.Name.Trim();
+                    if (string.IsNullOrWhiteSpace(name))
+                        throw new ArgumentException("Device name is required.");
+
+                    var exists = await _db.Devices.AsNoTracking()
+                        .AnyAsync(d => !d.IsDeleted && d.Name.ToLower() == name.ToLower(), ct);
+
+                    if (exists)
+                        throw new InvalidOperationException($"Device name '{name}' already exists.");
+
+                    var device = new Device
+                    {
+                        DeviceId = Guid.NewGuid(),
+                        Name = name,
+                        Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim()
+                    };
+
+                    if (dto.Configuration != null)
+                    {
+                        string protoJson = string.IsNullOrWhiteSpace(dto.Configuration.ProtocolSettingsJson) || dto.Configuration.ProtocolSettingsJson.Trim() == "{}"
+                            ? JsonSerializer.Serialize(dto.Configuration)
+                            : dto.Configuration.ProtocolSettingsJson;
+
+                        var cfg = new DeviceConfiguration
+                        {
+                            ConfigurationId = Guid.NewGuid(),
+                            Name = string.IsNullOrWhiteSpace(dto.Configuration.Name) ? $"{device.Name}-cfg" : dto.Configuration.Name.Trim(),
+                            PollIntervalMs = dto.Configuration.PollIntervalMs > 0 ? dto.Configuration.PollIntervalMs : 1000,
+                            ProtocolSettingsJson = protoJson
+                        };
+
+                        await _db.DeviceConfigurations.AddAsync(cfg, ct);
+                        device.DeviceConfigurationId = cfg.ConfigurationId;
+                    }
+
+                    await _db.Devices.AddAsync(device, ct);
+                    await _db.SaveChangesAsync(ct);
+
+                    result.CreatedDeviceIds.Add(device.DeviceId);
+                    _log.LogInformation("Created device {DeviceId}", device.DeviceId);
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Failed to create device {DeviceName}", dto.Name);
+                    result.Errors.Add($"Device '{dto.Name}': {ex.Message}");
+                }
+            }
+
+            await tx.CommitAsync(ct);
+            return result;
+        }
+
+
     }
 }
