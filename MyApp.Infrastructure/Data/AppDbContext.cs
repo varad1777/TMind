@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using MyApp.Domain.Entities;
 
+
 namespace MyApp.Infrastructure.Data
 {
     public class AppDbContext : DbContext
@@ -11,6 +12,8 @@ namespace MyApp.Infrastructure.Data
         public DbSet<DeviceConfiguration> DeviceConfigurations => Set<DeviceConfiguration>();
         public DbSet<DeviceSlave> DeviceSlaves => Set<DeviceSlave>();
         public DbSet<Register> Registers => Set<Register>();
+
+        public DbSet<ApiLog> ApiLogs => Set<ApiLog>();
 
         protected override void OnModelCreating(ModelBuilder mb)
         {

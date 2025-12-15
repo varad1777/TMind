@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using MyApp.Api.Middleware;
 using MyApp.Application.Interfaces;
 using MyApp.Infrastructure.Data;
 using MyApp.Infrastructure.Services;
@@ -146,6 +147,7 @@ app.MapHub<ModbusHub>("/api/hubs/modbus");
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseMiddleware<ApiLoggingMiddleware>();
 
 app.MapControllers(); // <-- map controller routes
 
