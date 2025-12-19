@@ -15,8 +15,32 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 # ---------- initial registers (pairs: high, 0) ----------
-initial_regs_slave1 = [2200,0, 1500,0, 3000,0, 500,0, 20,0, 1000,0, 1800,0, 250,0]
-initial_regs_slave2 = [2100,0, 1400,0, 2800,0, 490,0, 30,0, 900,0, 1600,0, 300,0]
+initial_regs_slave1 = [
+    2200,0,   # Voltage
+    2500,0,   # Current
+    4000,0,   # Temperature
+    5500,0,   # Frequency
+    500,0,    # Vibration
+    10000,0,  # FlowRate
+    30000,0, # RPM
+    25000,0   # Torque
+]
+
+initial_regs_slave2 = [
+    2300,0, 2000,0, 3500,0, 6000,0, 600,0, 12000,0, 32000,0, 26000,0
+]
+
+
+SIGNAL_LIMITS = {
+    0: {"min": 1800,   "max": 2600},    # Voltage
+    1: {"min": 0,    "max": 5000},    # Current
+    2: {"min": -1000,  "max": 8000},    # Temperature
+    3: {"min": 4500,   "max": 6500},    # Frequency
+    4: {"min": 000,    "max": 1000},    # Vibration
+    5: {"min": 100,    "max": 20000},   # FlowRate
+    6: {"min": 10000,  "max": 60000},  # RPM
+    7: {"min": 000,    "max": 50000},   # Torque
+}   
 
 # ---------- Build contexts for units 1..247 ----------
 # For 1 and 2 use the provided initial values; for others use zeros (16 registers -> 8 pairs)
@@ -59,12 +83,12 @@ _sim_state = {
     # per-unit fluctuation params (amplitudes list length 8, periods list length 8, jitter_scale float)
     "params": {
         1: {
-            "amplitudes": [50, 30, 100, 10, 5, 80, 120, 20],
+            "amplitudes": [120, 124, 140, 90, 10, 165, 1200, 200],
             "periods":    [8, 6, 12, 10, 3, 9, 7, 11],
             "jitter_scale": 0.02
         },
         2: {
-            "amplitudes": [50, 30, 100, 10, 5, 80, 120, 20],
+            "amplitudes": [120, 125, 140, 90, 9, 165, 1200, 200],
             "periods":    [8, 6, 12, 10, 3, 9, 7, 11],
             "jitter_scale": 0.02
         }
@@ -101,7 +125,21 @@ def simulate_slave(unit_id, update_interval):
                     period = periods[idx % len(periods)]
                     phase = (idx * 0.13) + (i * 0.0001)
                     delta = int(amp * math.sin(2 * math.pi * t / period + phase) + random.uniform(-amp*jitter_scale, amp*jitter_scale))
-                    new_high = max(0, base + delta)
+                    raw_value = base + delta
+
+                    # apply spikes ONCE
+                    for sp in active_spikes:
+                        if sp["idx"] == idx:
+                            raw_value += int(sp.get("magnitude", 0))
+
+                    # clamp to limits
+                    limits = SIGNAL_LIMITS.get(idx)
+                    if limits:
+                        new_high = max(limits["min"], min(limits["max"], raw_value))
+                    else:
+                        new_high = max(0, raw_value)
+
+
 
                     # apply spikes (additive). There can be multiple spikes; sum magnitudes or apply types.
                     for sp in active_spikes:

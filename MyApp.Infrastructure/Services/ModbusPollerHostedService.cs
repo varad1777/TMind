@@ -282,7 +282,9 @@ namespace MyApp.Infrastructure.Services
 
             // Acquire semaphore to limit concurrent network connections/polls.
             // This ensures we don't overload network/DB/CPU when many device loops run.
+           
             await _semaphore.WaitAsync(ct);  // this basically used to controll the concurrent access.
+            //----
             try
             {
                 // Connect to device TCP with a short timeout
@@ -365,6 +367,9 @@ namespace MyApp.Infrastructure.Services
                             sb.AppendLine($"  - slaveIndex={ds.slaveIndex}, DBAddr={reg.RegisterAddress}, Length={ent.Length}, DataType={reg.DataType}");
                         }
                         sb.AppendLine();
+                        //--------
+
+
 
                         try
                         {
@@ -384,7 +389,7 @@ namespace MyApp.Infrastructure.Services
                             sb.AppendLine($"{"Time (UTC)".PadRight(30)} | {"Unit".PadRight(6)} | {"Register".PadRight(8)} | {"Value".PadRight(15)} | {"Unit".PadRight(8)}");
                             sb.AppendLine(new string('-', 80));
 
-                            // Decode each register in this range (same logic you already have)
+                            // Decode each register in this range
                             foreach (var entry in r.Items)
                             {
                                 var ds = (DeviceSlave)entry.DeviceSlave;
@@ -412,12 +417,39 @@ namespace MyApp.Infrastructure.Services
                                         ushort r1 = regs[relativeIndex];
                                         ushort r2 = regs[relativeIndex + 1];
 
-                                        byte[] bytes = new byte[4] { (byte)(r1 >> 8), (byte)(r1 & 0xFF), (byte)(r2 >> 8), (byte)(r2 & 0xFF) };
-                                        if (string.Equals(endian, "Little", StringComparison.OrdinalIgnoreCase)) Array.Reverse(bytes);
+                                        // Build byte array for float32 decoding
+                                        byte[] bytes = new byte[4];
+                                        bool wordSwap = reg.WordSwap; // assume Register has a WordSwap property
+
+                                        if (wordSwap)
+                                        {
+                                            bytes[0] = (byte)(r2 >> 8);
+                                            bytes[1] = (byte)(r2 & 0xFF);
+                                            bytes[2] = (byte)(r1 >> 8);
+                                            bytes[3] = (byte)(r1 & 0xFF);
+                                        }
+                                        else
+                                        {
+                                            bytes[0] = (byte)(r1 >> 8);
+                                            bytes[1] = (byte)(r1 & 0xFF);
+                                            bytes[2] = (byte)(r2 >> 8);
+                                            bytes[3] = (byte)(r2 & 0xFF);
+                                        }
+
+                                        if (string.Equals(endian, "Little", StringComparison.OrdinalIgnoreCase))
+                                            Array.Reverse(bytes);
 
                                         float raw = BitConverter.ToSingle(bytes, 0);
 
-                                        if (r2 == 0 && Math.Abs(raw) < 1e-3)
+                                        // Clamp invalid / extreme values
+                                        if (float.IsNaN(raw) || float.IsInfinity(raw) || Math.Abs(raw) > 1e6)
+                                        {
+                                            sb.AppendLine($"Detected invalid float for slave {ds.slaveIndex}, using fallback/zero.");
+                                            raw = 0;
+                                        }
+
+                                        // Safer fallback logic
+                                        if ((r1 == 0 && r2 == 0) || Math.Abs(raw) < 1e-3)
                                         {
                                             double scaledFallback = r1;
                                             finalValue = scaledFallback * reg.Scale;
@@ -437,7 +469,11 @@ namespace MyApp.Infrastructure.Services
                                     allReads.Add((ds.deviceSlaveId, ds.slaveIndex, reg.DataType ?? $"Port{ds.slaveIndex}", finalValue, reg.Unit ?? string.Empty, reg.RegisterAddress));
 
                                     // append row to buffer
-                                    sb.AppendLine($"{now:O.PadRight(30)} | {ds.slaveIndex.ToString().PadRight(6)} | {reg.RegisterAddress.ToString().PadRight(8)} | {finalValue.ToString("G6").PadRight(15)} | {(reg.Unit ?? string.Empty).PadRight(8)}");
+                                    sb.AppendLine($"{now:O}".PadRight(30) + " | " +
+                                                  ds.slaveIndex.ToString().PadRight(6) + " | " +
+                                                  reg.RegisterAddress.ToString().PadRight(8) + " | " +
+                                                  finalValue.ToString("G6").PadRight(15) + " | " +
+                                                  (reg.Unit ?? string.Empty).PadRight(8));
                                 }
                                 catch (Exception decodeEx)
                                 {
@@ -489,8 +525,11 @@ namespace MyApp.Infrastructure.Services
                         {
                             _log.LogError(ex, "Error reading device {Device} unit={UnitId} start={Start} count={Count}", device.DeviceId, unitId, r.Start, r.Count);
                         }
-                    } // foreach slaveRanges
-                } // foreach protoGroups
+
+
+                        //-----
+                    }
+                } 
 
                 // Prepare telemetry DTOs and push them to SignalR (no DB save)
                 if (allReads.Count > 0)
@@ -566,6 +605,15 @@ namespace MyApp.Infrastructure.Services
                 _semaphore.Release();
             }
 
+           
+            
+            
+            
+            //----
+            
+            
+            
+            
             // Return the poll interval (ms) for next loop delay
             return pollIntervalMs;
         }

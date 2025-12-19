@@ -12,8 +12,8 @@ using MyApp.Infrastructure.Data;
 namespace MyApp.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20251211100000_apilogs")]
-    partial class apilogs
+    [Migration("20251216062955_some 7")]
+    partial class some7
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
