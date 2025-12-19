@@ -568,6 +568,8 @@ namespace MyApp.Infrastructure.Services
                                 // Option B: publish individual telemetry items
                                 foreach (var dto in telemetryDtos)
                                 {
+                                    Console.WriteLine($"data doing in queue {dto.Value}");
+
                                     ct.ThrowIfCancellationRequested();
                                     await _rabbit.PublishAsync(dto, ct);
                                 }
